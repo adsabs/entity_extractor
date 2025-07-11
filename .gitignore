@@ -1,6 +1,3 @@
-# Large data files
-software_mentions_pipeline/data/*.json
-software_mentions_pipeline/data/*.jsonl
 
 # Python
 __pycache__/
