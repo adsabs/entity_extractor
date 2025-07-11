@@ -1,0 +1,2 @@
+software_mentions_pipeline/data/*.json filter=lfs diff=lfs merge=lfs -text
+software_mentions_pipeline/data/*.jsonl filter=lfs diff=lfs merge=lfs -text
