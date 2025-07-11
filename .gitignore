@@ -30,6 +30,7 @@ wheels/
 env/
 venv/
 ENV/
+scix_mention_env/
 
 # IDE
 .idea/
