@@ -1,6 +1,6 @@
 # Entity Extractor
 
-An intelligent entity extraction system for academic literature, specifically designed to identify and classify software mentions in scientific papers from the Astrophysics Data System (ADS).
+An intelligent entity extraction system for academic literature, specifically designed to identify and classify software mentions in scientific papers from the Science Explorer (SciX, https://scixplorer.org).
 
 ## Overview
 
