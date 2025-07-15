@@ -1,0 +1,52 @@
+[
+  {
+    "name": "Python",
+    "description": "A high-level programming language for general-purpose programming",
+    "category": "Programming Language"
+  },
+  {
+    "name": "TensorFlow",
+    "description": "An open-source machine learning framework",
+    "category": "Machine Learning"
+  },
+  {
+    "name": "matplotlib",
+    "description": "A plotting library for Python",
+    "category": "Visualization"
+  },
+  {
+    "name": "NumPy",
+    "description": "A library for scientific computing in Python",
+    "category": "Scientific Computing"
+  },
+  {
+    "name": "pandas",
+    "description": "A data manipulation and analysis library for Python",
+    "category": "Data Analysis"
+  },
+  {
+    "name": "SciPy",
+    "description": "A scientific computing library for Python",
+    "category": "Scientific Computing"
+  },
+  {
+    "name": "scikit-learn",
+    "description": "A machine learning library for Python",
+    "category": "Machine Learning"
+  },
+  {
+    "name": "Astropy",
+    "description": "A Python library for astronomy",
+    "category": "Astronomy"
+  },
+  {
+    "name": "Jupyter",
+    "description": "An interactive computing environment",
+    "category": "Development Environment"
+  },
+  {
+    "name": "R",
+    "description": "A programming language for statistical computing",
+    "category": "Programming Language"
+  }
+]

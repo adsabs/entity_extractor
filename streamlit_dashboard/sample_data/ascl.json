@@ -1,0 +1,52 @@
+[
+  {
+    "name": "CASA",
+    "description": "Common Astronomy Software Applications",
+    "category": "Radio Astronomy"
+  },
+  {
+    "name": "SExtractor",
+    "description": "Source Extractor for astronomical images",
+    "category": "Image Processing"
+  },
+  {
+    "name": "TOPCAT",
+    "description": "Tool for Operations on Catalogues And Tables",
+    "category": "Catalog Analysis"
+  },
+  {
+    "name": "IRAF",
+    "description": "Image Reduction and Analysis Facility",
+    "category": "Image Processing"
+  },
+  {
+    "name": "SAOImage DS9",
+    "description": "Astronomical imaging and data visualization application",
+    "category": "Visualization"
+  },
+  {
+    "name": "GALFIT",
+    "description": "Two-dimensional galaxy fitting algorithm",
+    "category": "Galaxy Analysis"
+  },
+  {
+    "name": "PHOTUTILS",
+    "description": "Python package for photometry",
+    "category": "Photometry"
+  },
+  {
+    "name": "SCAMP",
+    "description": "Software for Calibrating AstroMetry and Photometry",
+    "category": "Calibration"
+  },
+  {
+    "name": "SWarp",
+    "description": "Software for image resampling and co-addition",
+    "category": "Image Processing"
+  },
+  {
+    "name": "DAOPHOT",
+    "description": "Point spread function photometry package",
+    "category": "Photometry"
+  }
+]

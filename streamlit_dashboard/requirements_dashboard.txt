@@ -1,0 +1,15 @@
+# Requirements for the Streamlit dashboard
+# Inherits from ../software_mentions_pipeline/requirements.txt
+
+# Core dependencies already in main requirements.txt:
+# transformers>=4.38.0
+# sentence-transformers>=2.2.2
+# pandas>=2.1.4
+# numpy==1.26.4
+# sqlite-utils>=3.36
+# tqdm>=4.66.2
+# streamlit>=1.33.0
+
+# Additional dashboard-specific dependencies
+plotly>=5.15.0
+altair>=5.0.0
