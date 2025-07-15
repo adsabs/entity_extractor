@@ -18,26 +18,47 @@ entity_extractor/
 │   ├── assign_likelihood_labels.py # Classification
 │   ├── labeling_tool.py          # Manual annotation
 │   └── data/                     # Data files and outputs
+├── streamlit_dashboard/          # Interactive web dashboard
+│   ├── app.py                    # Main Streamlit application
+│   ├── components/               # UI components
+│   ├── core_pipeline/            # Pipeline wrappers
+│   ├── sample_data/              # Sample data for testing
+│   └── README.md                 # Dashboard documentation
 ├── AGENT.md                      # Development configuration
 └── scix_entity_pipeline_diagram.md # Architecture documentation
 ```
 
 ## Quick Start
 
-### Prerequisites
-- Python 3.9+
-- 4GB+ disk space for data files
-- GPU recommended for faster processing
+### Option 1: Interactive Dashboard (Recommended)
 
-### Installation
+**For rapid testing and experimentation:**
+
 ```bash
-cd software_mentions_pipeline
-pip install -r requirements.txt
+# Install dependencies
+pip install streamlit pandas numpy transformers sentence-transformers tqdm
+
+# Launch the dashboard
+cd streamlit_dashboard
+python launch_app.py
 ```
 
-### Run Pipeline
+Open your browser to `http://localhost:8501` for an interactive interface with:
+- Entity input and ontology selection
+- Real-time pipeline execution
+- Interactive results with filtering and export
+- Parameter tuning and visualization
+
+### Option 2: Command Line Pipeline
+
+**For production/batch processing:**
+
 ```bash
-# Initialize and run the complete pipeline
+# Install dependencies
+cd software_mentions_pipeline
+pip install -r requirements.txt
+
+# Run the complete pipeline
 python load_inputs.py
 python batch_filter.py
 python embed_contextual_mentions.py
@@ -45,7 +66,12 @@ python score_filtered_contexts.py
 python assign_likelihood_labels.py
 ```
 
-See [`software_mentions_pipeline/README.md`](software_mentions_pipeline/README.md) for detailed instructions.
+### Prerequisites
+- Python 3.9+
+- 4GB+ disk space for data files
+- GPU recommended for faster processing
+
+See [`software_mentions_pipeline/README.md`](software_mentions_pipeline/README.md) for detailed CLI instructions.
 
 ## What it Does
 
@@ -63,11 +89,20 @@ The pipeline processes academic papers to:
 
 ## Key Features
 
+### Core Pipeline
 - **Multi-modal scoring**: Combines embeddings, NER, and keyword heuristics
 - **Modular pipeline**: Each stage can be run independently
 - **Manual annotation tools**: Built-in labeling interface for quality assurance
 - **Multiple output formats**: JSON, SQLite, NER training data
 - **Robust matching**: Handles both exact and fuzzy matching strategies
+
+### Interactive Dashboard
+- **Real-time experimentation**: Test different parameters instantly
+- **Entity management**: Custom entities or ontology selection (OntoSoft, ASCL)
+- **Parameter tuning**: Adjust context windows, thresholds, and matching types
+- **Visual analytics**: Interactive results with filtering and statistics
+- **Export functionality**: Download results in multiple formats
+- **Sample data included**: Ready-to-use dataset for testing
 
 ## Data Sources
 
@@ -83,8 +118,42 @@ The pipeline processes academic papers to:
   - `oeg/software_benchmark_multidomain`
   - `adsabs/nasa-smd-ibm-v0.1_NER_DEAL` (INDUS)
 
+## Dashboard Usage
+
+The Streamlit dashboard provides an intuitive interface for entity extraction:
+
+1. **Entity Input**: 
+   - Enter custom entities manually
+   - Select from OntoSoft or ASCL ontologies
+   - Search and filter available entities
+
+2. **Configuration**:
+   - Set corpus sample size (100-5000 documents)
+   - Choose document sections (title, abstract, body)
+   - Adjust context window size and matching types
+
+3. **Execution**:
+   - Run complete pipeline with progress tracking
+   - Step-by-step execution for granular control
+   - Real-time status updates and metrics
+
+4. **Results**:
+   - Interactive table with filtering by entity, match type, and section
+   - Export options (CSV, JSON, raw data)
+   - Statistics and visualizations
+
 ## Development
 
+### Dashboard Development
+The Streamlit dashboard provides a modern interface for rapid prototyping and experimentation:
+- **Modular architecture**: Separate UI components and pipeline wrappers
+- **Caching system**: Efficient data loading and processing
+- **Testing framework**: Unit tests and sample data for validation
+- **Future-ready**: Architecture supports LLM integration and model comparison
+
+See [`streamlit_dashboard/README.md`](streamlit_dashboard/README.md) for detailed dashboard documentation.
+
+### General Development
 This project includes configuration for AI development assistance. See [`AGENT.md`](AGENT.md) for:
 - Build and test commands
 - Architecture overview
