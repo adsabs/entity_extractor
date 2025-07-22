@@ -10,12 +10,11 @@ SAMPLE_DATA_DIR = CURRENT_DIR / "sample_data"
 # Use sample data if original data doesn't exist
 if (DATA_DIR / "corpus.jsonl").exists():
     CORPUS_PATH = DATA_DIR / "corpus.jsonl"
-    ONTOSOFT_PATH = DATA_DIR / "ontosoft.json"
-    ASCL_PATH = DATA_DIR / "ascl.json"
 else:
     CORPUS_PATH = SAMPLE_DATA_DIR / "corpus.jsonl"
-    ONTOSOFT_PATH = SAMPLE_DATA_DIR / "ontosoft.json"
-    ASCL_PATH = SAMPLE_DATA_DIR / "ascl.json"
+
+# ASCL ontology path
+ASCL_PATH = CURRENT_DIR.parent / "ontologies" / "ASCL" / "ascl.json"
 
 DB_PATH = DATA_DIR / "match_candidates.db"
 LABELS_PATH = DATA_DIR / "labels.json"

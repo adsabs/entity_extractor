@@ -25,31 +25,14 @@ def load_ontologies() -> Dict[str, List[str]]:
     """Load available ontologies and return entity lists."""
     ontologies = {}
     
-    # Load OntoSoft
-    try:
-        ontosoft_data = load_json(ONTOSOFT_PATH)
-        ontologies["OntoSoft"] = [item.get("name", "") for item in ontosoft_data if item.get("name")]
-        st.success(f"Loaded {len(ontologies['OntoSoft'])} OntoSoft entities")
-    except FileNotFoundError:
-        if "sample_data" in str(ONTOSOFT_PATH):
-            st.info("Using sample OntoSoft data")
-            ontologies["OntoSoft"] = []
-        else:
-            st.warning(f"OntoSoft file not found at {ONTOSOFT_PATH}")
-            ontologies["OntoSoft"] = []
-    
     # Load ASCL
     try:
         ascl_data = load_json(ASCL_PATH)
-        ontologies["ASCL"] = [item.get("name", "") for item in ascl_data if item.get("name")]
+        ontologies["ASCL"] = [entry.get("title", "") for entry in ascl_data.values() if entry.get("title")]
         st.success(f"Loaded {len(ontologies['ASCL'])} ASCL entities")
     except FileNotFoundError:
-        if "sample_data" in str(ASCL_PATH):
-            st.info("Using sample ASCL data")
-            ontologies["ASCL"] = []
-        else:
-            st.warning(f"ASCL file not found at {ASCL_PATH}")
-            ontologies["ASCL"] = []
+        st.warning(f"ASCL file not found at {ASCL_PATH}")
+        ontologies["ASCL"] = []
     
     return ontologies
 

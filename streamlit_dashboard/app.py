@@ -1,25 +1,17 @@
 # streamlit_dashboard/app.py
-"""Main Streamlit dashboard for entity extractor."""
+"""Main Streamlit dashboard for entity extractor with integrated search functionality."""
 
 import streamlit as st
 import pandas as pd
 from pathlib import Path
 import sys
+import gzip
+from typing import List, Dict, Any
 
 # Add the parent directory to the path so we can import from software_mentions_pipeline
 sys.path.append(str(Path(__file__).parent.parent))
 
-from core_pipeline import (
-    load_ontologies, 
-    load_corpus_sample, 
-    init_database,
-    find_exact_matches,
-    get_entity_list,
-    validate_entities
-)
-from components.input_controls import render_sidebar_controls
 from components.result_tables import render_results_table
-from config import *
 
 # Page configuration
 st.set_page_config(
@@ -63,171 +55,352 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+@st.cache_data
+def load_software_mentions_data():
+    """Load the software mentions data from compressed CSV."""
+    csv_path = Path("../optimized_extractor/results/exports/software_mentions_all.csv.gzip")
+    
+    if not csv_path.exists():
+        st.error(f"❌ Data file not found at {csv_path}")
+        st.info("Please make sure the extraction pipeline has been run.")
+        return None
+    
+    try:
+        with st.spinner("Loading software mentions data (612k+ records)..."):
+            df = pd.read_csv(csv_path, compression='gzip')
+        return df
+    except Exception as e:
+        st.error(f"❌ Error loading data: {e}")
+        return None
+
+
+def search_term(df: pd.DataFrame, search_query: str) -> pd.DataFrame:
+    """Search for a specific term in the data."""
+    if df is None:
+        return pd.DataFrame()
+    
+    # Search by term name (case-insensitive)
+    results = df[df['term_name'].str.contains(search_query, case=False, na=False)]
+    
+    if len(results) == 0:
+        # Also search by extracted software name (before colon)
+        df_copy = df.copy()
+        df_copy['software_name'] = df_copy['term_name'].apply(
+            lambda x: x.split(':')[0].strip() if ':' in str(x) else str(x)
+        )
+        results = df_copy[df_copy['software_name'].str.contains(search_query, case=False, na=False)]
+    
+    return results
+
+
+def get_available_ner_models():
+    """Get list of available NER models."""
+    models = []
+    
+    # Always include INDUS NER (it's installed via transformers)
+    models.append("adsabs/nasa-smd-ibm-v0.1_NER_DEAL")  # INDUS NER - primary model for astronomy/astrophysics
+    
+    # Check if spaCy is available
+    try:
+        import spacy
+        models.append("en_core_web_sm")  # spaCy English - general purpose NER
+    except ImportError:
+        pass
+    
+    return models
+
+
+@st.cache_resource
+def load_ner_model(model_name: str):
+    """Load and cache NER models."""
+    try:
+        if model_name == "adsabs/nasa-smd-ibm-v0.1_NER_DEAL":
+            from transformers import pipeline
+            import torch
+            ner_pipeline = pipeline(
+                "ner",
+                model=model_name,
+                tokenizer=model_name,
+                aggregation_strategy="simple",
+                device=0 if torch.cuda.is_available() else -1
+            )
+            return {"pipeline": ner_pipeline, "status": "success"}
+        elif model_name == "en_core_web_sm":
+            import spacy
+            nlp = spacy.load("en_core_web_sm")
+            return {"pipeline": nlp, "status": "success"}
+        else:
+            return {"pipeline": None, "status": "error", "error": f"Model {model_name} not implemented"}
+    except Exception as e:
+        return {"pipeline": None, "status": "error", "error": str(e)}
+
+
+def chunk_text(text: str, max_tokens: int = 512, overlap: int = 50):
+    """Split text into smaller chunks for processing."""
+    words = text.split()
+    chunks = []
+    start = 0
+    while start < len(words):
+        end = start + max_tokens
+        chunk = " ".join(words[start:end])
+        chunks.append(chunk)
+        start += max_tokens - overlap
+        if end >= len(words):
+            break
+    return chunks
+
+
+def run_ner_on_context(context: str, model_name: str):
+    """Run NER model on given context."""
+    try:
+        model_info = load_ner_model(model_name)
+        
+        if model_info["status"] == "error":
+            return {"entities": [], "status": "error", "error": model_info["error"]}
+        
+        pipeline_obj = model_info["pipeline"]
+        
+        if model_name == "adsabs/nasa-smd-ibm-v0.1_NER_DEAL":
+            # Process with INDUS NER using chunking
+            entities = []
+            chunks = chunk_text(context)
+            
+            for chunk in chunks:
+                try:
+                    chunk_entities = pipeline_obj(chunk)
+                    for entity in chunk_entities:
+                        entities.append({
+                            "text": entity["word"],
+                            "label": entity["entity_group"], 
+                            "score": round(entity["score"], 4),
+                            "start": entity.get("start", 0),
+                            "end": entity.get("end", len(entity["word"]))
+                        })
+                except Exception as e:
+                    continue
+                    
+        elif model_name == "en_core_web_sm":
+            # Process with spaCy
+            doc = pipeline_obj(context)
+            entities = []
+            for ent in doc.ents:
+                entities.append({
+                    "text": ent.text,
+                    "label": ent.label_,
+                    "score": 1.0,  # spaCy doesn't provide confidence scores by default
+                    "start": ent.start_char,
+                    "end": ent.end_char
+                })
+        else:
+            entities = []
+        
+        return {"entities": entities, "status": "success"}
+        
+    except Exception as e:
+        return {"entities": [], "status": "error", "error": str(e)}
+
+
+def render_ner_results(ner_results: Dict[str, Any], context: str):
+    """Render NER results with highlighted entities."""
+    if ner_results["status"] == "error":
+        st.error(f"❌ NER Error: {ner_results['error']}")
+        return
+    
+    entities = ner_results["entities"]
+    if not entities:
+        st.info("No entities detected by this model")
+        return
+    
+    st.success(f"✅ Found {len(entities)} entities")
+    
+    # Show entity summary with colors
+    entity_types = {}
+    for entity in entities:
+        label = entity["label"]
+        if label not in entity_types:
+            entity_types[label] = []
+        entity_types[label].append(entity["text"])
+    
+    # Display entity type summary
+    st.write("**Entity Types Found:**")
+    for label, texts in entity_types.items():
+        unique_texts = list(set(texts))
+        st.write(f"• **{label}**: {', '.join(unique_texts[:5])}{'...' if len(unique_texts) > 5 else ''}")
+    
+    # Show detailed entity table
+    st.write("**Detailed Results:**")
+    entity_df = pd.DataFrame(entities)
+    if 'score' in entity_df.columns:
+        entity_df = entity_df.sort_values('score', ascending=False)
+    st.dataframe(entity_df, use_container_width=True)
+    
+    # Create highlighted text (simplified approach)
+    st.write("**Highlighted Context:**")
+    highlighted_text = context
+    
+    # Sort entities by start position (reverse order to maintain positions)
+    sorted_entities = sorted(entities, key=lambda x: x.get("start", 0), reverse=True)
+    
+    for entity in sorted_entities:
+        text = entity["text"]
+        label = entity["label"]
+        score = entity.get("score", 1.0)
+        
+        # Simple highlighting by replacing text
+        if text in highlighted_text:
+            replacement = f"**[{text}]** `({label})`"
+            highlighted_text = highlighted_text.replace(text, replacement, 1)
+    
+    st.markdown(highlighted_text)
+
+
 def main():
     """Main dashboard function."""
     
     # Header
-    st.markdown('<div class="main-header">🔍 Entity Extractor Dashboard</div>', unsafe_allow_html=True)
-    st.markdown("**Rapid testing and experimentation for entity disambiguation in academic literature**")
+    st.markdown('<div class="main-header">🔍 Software Mentions Search & NER Dashboard</div>', unsafe_allow_html=True)
+    st.markdown("**Search software mentions and run NER models on extracted contexts**")
     
-    # Initialize session state
-    if "pipeline_results" not in st.session_state:
-        st.session_state.pipeline_results = {}
-    if "current_step" not in st.session_state:
-        st.session_state.current_step = 0
+    # Load data
+    df = load_software_mentions_data()
     
-    # Sidebar controls
-    controls = render_sidebar_controls()
-    
-    # Main content area
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        st.subheader("Pipeline Execution")
-        
-        # Display current configuration
-        with st.expander("Current Configuration", expanded=False):
-            st.json({
-                "entities": controls["entities"][:5] if len(controls["entities"]) > 5 else controls["entities"],
-                "entity_count": len(controls["entities"]),
-                "ontology": controls["ontology"],
-                "corpus_sections": controls["corpus_sections"],
-                "sample_size": controls["sample_size"],
-                "context_window": controls["context_window"],
-                "match_types": controls["match_types"]
-            })
-        
-        # Pipeline execution buttons
-        if st.button("🚀 Run Complete Pipeline", type="primary", use_container_width=True):
-            run_complete_pipeline(controls)
-        
-        st.markdown("---")
-        
-        # Step-by-step execution
-        st.subheader("Step-by-Step Execution")
-        
-        col_step1, col_step2, col_step3 = st.columns(3)
-        
-        with col_step1:
-            if st.button("1️⃣ Load Data", use_container_width=True):
-                run_step_1(controls)
-        
-        with col_step2:
-            if st.button("2️⃣ Find Matches", use_container_width=True):
-                run_step_2(controls)
-        
-        with col_step3:
-            if st.button("3️⃣ More Steps", use_container_width=True, disabled=True):
-                st.info("Coming soon: Embeddings, Scoring, Classification")
-    
-    with col2:
-        st.subheader("Quick Stats")
-        
-        # Display metrics if we have results
-        if "match_stats" in st.session_state.pipeline_results:
-            stats = st.session_state.pipeline_results["match_stats"]
-            
-            st.metric("Total Matches", stats["total_matches"])
-            st.metric("Unique Entities", stats["unique_entities"])
-            st.metric("Unique Documents", stats["unique_documents"])
-            
-            # Match type breakdown
-            if stats["matches_by_type"]:
-                st.subheader("Match Types")
-                for match_type, count in stats["matches_by_type"].items():
-                    st.metric(match_type.replace("_", " ").title(), count)
-    
-    # Results display
-    st.markdown("---")
-    st.subheader("Results")
-    
-    if "candidates" in st.session_state.pipeline_results:
-        df_candidates = st.session_state.pipeline_results["candidates"]
-        render_results_table(df_candidates)
-    else:
-        st.info("👆 Run the pipeline above to see results")
-
-
-def run_complete_pipeline(controls):
-    """Run the complete pipeline."""
-    with st.spinner("Running complete pipeline..."):
-        
-        # Step 1: Load data
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        status_text.text("Loading corpus sample...")
-        df_corpus = load_corpus_sample(
-            sample_size=controls["sample_size"],
-            sections=controls["corpus_sections"]
-        )
-        progress_bar.progress(0.3)
-        
-        # Step 2: Find matches
-        status_text.text("Finding exact matches...")
-        df_candidates = find_exact_matches(
-            df_corpus=df_corpus,
-            entities=controls["entities"],
-            match_types=controls["match_types"],
-            context_window=controls["context_window"]
-        )
-        progress_bar.progress(0.6)
-        
-        # Step 3: Calculate statistics
-        status_text.text("Calculating statistics...")
-        from core_pipeline.batch_filter import get_match_statistics
-        match_stats = get_match_statistics(df_candidates)
-        progress_bar.progress(1.0)
-        
-        # Store results
-        st.session_state.pipeline_results = {
-            "corpus": df_corpus,
-            "candidates": df_candidates,
-            "match_stats": match_stats
-        }
-        
-        status_text.text("Pipeline complete!")
-        st.success(f"Found {len(df_candidates)} matches across {match_stats['unique_documents']} documents")
-
-
-def run_step_1(controls):
-    """Run step 1: Load data."""
-    with st.spinner("Loading corpus sample..."):
-        df_corpus = load_corpus_sample(
-            sample_size=controls["sample_size"],
-            sections=controls["corpus_sections"]
-        )
-        
-        st.session_state.pipeline_results["corpus"] = df_corpus
-        st.session_state.current_step = 1
-        
-        st.success(f"Loaded {len(df_corpus)} documents")
-
-
-def run_step_2(controls):
-    """Run step 2: Find matches."""
-    if "corpus" not in st.session_state.pipeline_results:
-        st.error("Please run Step 1 first to load the corpus")
+    if df is None:
         return
     
-    with st.spinner("Finding exact matches..."):
-        df_corpus = st.session_state.pipeline_results["corpus"]
+    # Sidebar for search and NER configuration
+    st.sidebar.header("🔧 Configuration")
+    
+    # Search section
+    st.sidebar.subheader("1. Entity Search")
+    search_query = st.sidebar.text_input(
+        "Search for software:",
+        placeholder="e.g., astropy, PyVO, LENSKY",
+        help="Search for software mentions by name"
+    )
+    
+    # NER Model selection
+    st.sidebar.subheader("2. NER Models")
+    available_models = get_available_ner_models()
+    selected_models = st.sidebar.multiselect(
+        "Select NER models to run:",
+        available_models,
+        default=[available_models[0]],
+        help="Choose which NER models to apply to contexts"
+    )
+    
+    # Main content
+    if search_query:
+        # Search for mentions
+        with st.spinner(f"Searching for '{search_query}'..."):
+            results = search_term(df, search_query)
         
-        df_candidates = find_exact_matches(
-            df_corpus=df_corpus,
-            entities=controls["entities"],
-            match_types=controls["match_types"],
-            context_window=controls["context_window"]
-        )
+        if len(results) == 0:
+            st.warning(f"❌ No results found for '{search_query}'")
+            return
         
-        from core_pipeline.batch_filter import get_match_statistics
-        match_stats = get_match_statistics(df_candidates)
+        # Display search results summary
+        st.subheader(f"🔍 Search Results for '{search_query}'")
         
-        st.session_state.pipeline_results["candidates"] = df_candidates
-        st.session_state.pipeline_results["match_stats"] = match_stats
-        st.session_state.current_step = 2
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Mentions", len(results))
+        with col2:
+            st.metric("Unique Software", results['term_name'].nunique())
+        with col3:
+            st.metric("Unique Papers", results['bibcode'].nunique())
+        with col4:
+            st.metric("Total Matches", results['match_count'].sum())
         
-        st.success(f"Found {len(df_candidates)} matches")
+        # Group by term_name for display
+        grouped = results.groupby('term_name')
+        
+        for term_name, group in grouped:
+            with st.expander(f"📦 {term_name} ({len(group)} mentions)", expanded=True):
+                
+                # Show mention details
+                col1, col2 = st.columns([2, 1])
+                
+                with col2:
+                    # Quick stats
+                    st.write("**Statistics:**")
+                    st.write(f"🔄 Total mentions: {len(group)}")
+                    st.write(f"📚 Unique papers: {group['bibcode'].nunique()}")
+                    st.write(f"🎯 Total matches: {group['match_count'].sum()}")
+                    
+                    # Location distribution
+                    location_counts = group['match_location'].value_counts()
+                    st.write("**Locations:**")
+                    for location, count in location_counts.items():
+                        st.write(f"• {location}: {count}")
+                
+                with col1:
+                    # Context analysis with NER
+                    st.write("**Context Analysis with NER:**")
+                    
+                    # Select a context to analyze
+                    contexts_with_text = group[group['context'].notna() & (group['context'] != '')]
+                    
+                    if len(contexts_with_text) > 0:
+                        context_options = []
+                        for idx, (_, row) in enumerate(contexts_with_text.iterrows()):
+                            preview = str(row['context'])[:50] + "..." if len(str(row['context'])) > 50 else str(row['context'])
+                            context_options.append(f"{idx+1}. {row['bibcode']} - {preview}")
+                        
+                        selected_idx = st.selectbox(
+                            "Select context to analyze:",
+                            range(len(context_options)),
+                            format_func=lambda x: context_options[x],
+                            key=f"context_{term_name}"
+                        )
+                        
+                        selected_context = contexts_with_text.iloc[selected_idx]['context']
+                        
+                        # Show original context
+                        st.write("**Original Context:**")
+                        st.text_area("Context", value=selected_context, height=100, disabled=True, key=f"orig_{term_name}_{selected_idx}", label_visibility="collapsed")
+                        
+                        # Run NER models
+                        if selected_models:
+                            st.write("**NER Analysis:**")
+                            
+                            for model_name in selected_models:
+                                with st.expander(f"🤖 {model_name}", expanded=True):
+                                    if st.button(f"Run {model_name}", key=f"ner_{term_name}_{model_name}_{selected_idx}"):
+                                        with st.spinner(f"Running {model_name}..."):
+                                            ner_results = run_ner_on_context(selected_context, model_name)
+                                        render_ner_results(ner_results, selected_context)
+                        else:
+                            st.info("Select NER models to analyze contexts")
+                    else:
+                        st.info("No contexts available for this software")
+                
+                # Show detailed mentions table
+                st.write("**Detailed Mentions:**")
+                display_df = group[['bibcode', 'title', 'match_location', 'match_count', 'in_title', 'in_abstract']].copy()
+                
+                # Truncate long titles
+                display_df['title'] = display_df['title'].apply(
+                    lambda x: str(x)[:80] + "..." if pd.notna(x) and len(str(x)) > 80 else str(x)
+                )
+                
+                st.dataframe(display_df, use_container_width=True)
+    
+    else:
+        # Show welcome message and data overview
+        st.subheader("📊 Dataset Overview")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Records", f"{len(df):,}")
+        with col2:
+            st.metric("Unique Software", f"{df['term_name'].nunique():,}")
+        with col3:
+            st.metric("Unique Papers", f"{df['bibcode'].nunique():,}")
+        
+        st.info("👆 Enter a software name in the sidebar to search for mentions and analyze contexts with NER models.")
+
+
+
 
 
 if __name__ == "__main__":
