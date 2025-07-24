@@ -5,7 +5,7 @@
 Always activate the local Python environment before running any code or installing dependencies.
 
 ## Project Bootstrap Checklist
-Note: If running this on scixmuse the virtual environment has already been created and you can skip this step.
+Note: If running this on scixmuse the virtual environment has already been created and so you just need to cd to entity_extractor, type source venv/bin/activate, then cd to streamlit_dashboard and type streamlit run app.py
 ```bash
 # 1. Environment setup
 python -m venv venv && source venv/bin/activate
@@ -45,9 +45,7 @@ python software_mentions_pipeline/test_indus_ner_tags.py
 6. `python software_mentions_pipeline/assign_likelihood_labels.py` - Assign likelihood scores
 
 ### Dashboard & Interactive Tools
-- `python streamlit_dashboard/launch_app.py` - Launch Streamlit dashboard
-- `python streamlit_dashboard/launch_app.py --port 8502` - Use custom port
-- `streamlit run streamlit_dashboard/app.py` - Alternative launch method
+- `streamlit run streamlit_dashboard/app.py` - Launch streamlit dashboard
 
 ## Architecture
 
