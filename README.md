@@ -1,32 +1,86 @@
 # Entity Extractor
 
-An intelligent entity extraction system for academic literature, specifically designed to identify and classify software mentions in scientific papers from the Science Explorer (SciX, https://scixplorer.org).
+**Elevator pitch**: Automatically identify software mentions in scientific papers at scale to improve reproducibility and enable software impact analysis.
 
-## Overview
+## What & Why
 
-This repository contains a comprehensive pipeline for extracting software mentions from academic papers using advanced NLP techniques including embeddings, named entity recognition, and heuristic matching.
+### Problem Statement
+Reproducibility in science depends on knowing _which software_ a paper used. Unfortunately, PDF text seldom marks software explicitly, and manual identification is impossible at scale. This project recovers software mentions from millions of academic papers using advanced NLP techniques.
 
-## Project Structure
+### Scientific Impact
+- **Enrich ADS metadata** → enables faceted search by software tools
+- **Build training datasets** for domain-specific NER models  
+- **Support bibliometrics** of software usage and citation patterns
+- **Enable reproducible research** by tracking computational dependencies
 
+### Target Scope
+- **Primary corpus**: ~10M astrophysics papers from ADS (Astrophysics Data System)
+- **Generalizable**: Works with any JSONL corpus containing `{bibcode, title, abstract, body}` fields
+- **Software registries**: OntoSoft, ASCL (Astrophysics Source Code Library), and custom ontologies
+
+## 10-Minute Quick Start
+
+For newcomers who want instant success without downloading 3GB corpus:
+
+```bash
+# 1. Setup environment
+git clone https://github.com/adsabs/entity_extractor
+cd entity_extractor
+python -m venv venv && source venv/bin/activate
+
+# 2. Install dependencies
+pip install -r software_mentions_pipeline/requirements.txt
+
+# 3. Run with sample data
+python software_mentions_pipeline/load_inputs.py --sample
+python streamlit_dashboard/launch_app.py
 ```
-entity_extractor/
-├── software_mentions_pipeline/    # Main extraction pipeline
-│   ├── load_inputs.py            # Data initialization
-│   ├── batch_filter*.py          # Exact matching stages
-│   ├── embed_*.py                # Embedding generation
-│   ├── score_*.py                # Context scoring
-│   ├── assign_likelihood_labels.py # Classification
-│   ├── labeling_tool.py          # Manual annotation
-│   └── data/                     # Data files and outputs
-├── streamlit_dashboard/          # Interactive web dashboard
-│   ├── app.py                    # Main Streamlit application
-│   ├── components/               # UI components
-│   ├── core_pipeline/            # Pipeline wrappers
-│   ├── sample_data/              # Sample data for testing
-│   └── README.md                 # Dashboard documentation
-├── AGENT.md                      # Development configuration
-└── scix_entity_pipeline_diagram.md # Architecture documentation
-```
+
+Open `http://localhost:8501` for an interactive interface with sample data included.
+
+## 📁 Repository Map
+
+<details>
+<summary><strong>software_mentions_pipeline/</strong> - Core extraction pipeline (8 stages)</summary>
+
+- **load_inputs.py** - Initialize database and load corpus/metadata
+- **batch_filter.py** - Stage 1: Extract exact/fuzzy matches from text
+- **embed_contextual_mentions.py** - Generate sentence embeddings for contexts
+- **score_filtered_contexts.py** - Score context similarity using multiple signals
+- **assign_likelihood_labels.py** - Assign final likelihood classifications
+- **labeling_tool.py** - Manual annotation interface for quality assurance
+- **export_ner_training_data.py** - Export labeled data for model training
+- **data/** - SQLite database, corpus files, and intermediate outputs
+</details>
+
+<details>
+<summary><strong>ontologies/</strong> - Software registry data and management</summary>
+
+- Raw JSON registries (OntoSoft, ASCL) with software metadata
+- Helper scripts for registry updates and cleaning
+- Embedding precomputation for software descriptions
+</details>
+
+<details>
+<summary><strong>streamlit_dashboard/</strong> - Interactive experimentation UI</summary>
+
+- **app.py** - Main Streamlit application with real-time pipeline execution
+- **components/** - Modular UI widgets for entity input, parameter tuning, results display
+- **core_pipeline/** - Pipeline wrappers optimized for interactive use
+- **sample_data/** - Ready-to-use test dataset for immediate experimentation
+</details>
+
+<details>
+<summary><strong>scripts/</strong> - Utility and maintenance tools</summary>
+
+- One-off data processing and analysis utilities
+- Registry update and validation scripts
+- Performance benchmarking and optimization helpers
+</details>
+
+**optimized_extractor/** - Experimental fast Cython/regex prototype (WIP)  
+**streamlit_dashboard/** - Web UI for quick experimentation and parameter tuning  
+**AGENT.md** - Development environment configuration and commands
 
 ## Quick Start
 
@@ -73,19 +127,54 @@ python assign_likelihood_labels.py
 
 See [`software_mentions_pipeline/README.md`](software_mentions_pipeline/README.md) for detailed CLI instructions.
 
-## What it Does
+## 🔄 Pipeline Architecture & Data Flow
 
-The pipeline processes academic papers to:
+```mermaid
+graph LR
+    A[corpus.jsonl<br/>3GB papers] -->|Stage 1| B(load_inputs.py)
+    B -->|labels.json| C(batch_filter.py)
+    C -->|context windows| D(embed_contextual_mentions.py)
+    D -->|vectors| E(score_filtered_contexts.py)
+    E -->|scores+signals| F(assign_likelihood_labels.py)
+    F -->|labeled JSONL + SQLite| G(export_ner_training_data.py)
+    
+    H[OntoSoft Registry] --> B
+    I[ASCL Registry] --> B
+    J[Custom Ontologies] --> B
+```
 
-1. **Extract software names** from OntoSoft and ASCL registries
-2. **Find exact matches** in paper text (titles, abstracts, body)
-3. **Generate embeddings** for context understanding using NASA's SentenceTransformer model
-4. **Score matches** using multiple signals:
-   - Semantic similarity between context and software description
-   - Keyword heuristics (software, model, algorithm, etc.)
-   - Named Entity Recognition from specialized models
-5. **Classify likelihood** of true software mentions
-6. **Export results** for further analysis or model training
+### Stage-by-Stage Process
+
+1. **Data Loading** (`load_inputs.py`)
+   - Initialize SQLite database with optimized schema
+   - Load software registries (OntoSoft, ASCL, custom) 
+   - Parse and index paper corpus for efficient querying
+
+2. **Exact Matching** (`batch_filter.py`)
+   - Find exact software name matches in paper text
+   - Extract surrounding context windows (±100 words)
+   - Store candidate matches with metadata (section, position, bibcode)
+
+3. **Context Embedding** (`embed_contextual_mentions.py`)
+   - Generate sentence embeddings using NASA's domain-adapted model
+   - Batch process contexts for GPU efficiency
+   - Store vectors in SQLite for similarity computation
+
+4. **Multi-Signal Scoring** (`score_filtered_contexts.py`)
+   - **Semantic similarity**: Context-to-description embedding cosine similarity
+   - **Keyword heuristics**: Presence of software-related terms (algorithm, model, code, etc.)
+   - **NER signals**: Domain-specific named entity recognition confidence
+   - **Position signals**: Title/abstract mentions weighted higher
+
+5. **Classification** (`assign_likelihood_labels.py`)
+   - Combine scoring signals using learned weights
+   - Assign likelihood labels: LIKELY, POSSIBLE, UNLIKELY
+   - Generate confidence scores and explanations
+
+6. **Export & Validation** 
+   - Export results in multiple formats (JSON, CSV, NER training data)
+   - Manual labeling interface for quality assurance
+   - Performance metrics and validation reports
 
 ## Key Features
 
@@ -142,22 +231,98 @@ The Streamlit dashboard provides an intuitive interface for entity extraction:
    - Export options (CSV, JSON, raw data)
    - Statistics and visualizations
 
+## 🔧 Extending Functionality
+
+### Adding a New Registry/Ontology
+
+1. **Create registry file**: Drop `my_registry.json` with required fields:
+   ```json
+   {
+     "software_name": {
+       "name": "MyTool",
+       "description": "Description for embedding similarity",
+       "url": "https://example.com"
+     }
+   }
+   ```
+
+2. **Load into pipeline**: `python load_inputs.py --ontology data/my_registry.json`
+
+3. **Optional pre-embedding**: `python embed_software_library.py --file data/my_registry.json`
+
+### Adding a New Scoring Signal
+
+1. **Create signal module**: Write `signals/my_signal.py` with function:
+   ```python
+   def score(context_row: dict) -> float:
+       """Return 0.0-1.0 confidence score for this context"""
+       return confidence_score
+   ```
+
+2. **Register in scorer**: Import and add to `score_filtered_contexts.py`
+
+3. **Configure weight**: Update signal weight in configuration
+
+### Adding Dashboard Components
+
+1. Follow modular architecture in `streamlit_dashboard/components/`
+2. Create new widget following existing patterns
+3. Add to main app navigation
+4. Include unit tests with sample data
+
+## 💻 Tech Stack
+
+- **NLP**: HuggingFace Transformers 4.39+ / Sentence-Transformers 2.4
+- **Regex/Tokenization**: spaCy 3.x with en_core_web_sm model
+- **Storage**: SQLite with WAL mode + pandas for export
+- **ML Acceleration**: CUDA-enabled PyTorch with CPU fallback
+- **Large-file handling**: Memory-mapped JSONL iterator, chunked DB inserts
+- **Web UI**: Streamlit 1.28+ with caching and session state
+
+## ❗ Troubleshooting & FAQ
+
+### Common Issues
+
+1. **CUDA OOM during embedding**
+   ```bash
+   # Reduce batch size or use CPU
+   python embed_contextual_mentions.py --batch-size 16
+   python embed_contextual_mentions.py --device cpu
+   ```
+
+2. **SQLite database locked error**
+   ```bash
+   # Ensure single writer process, check for zombie connections
+   sqlite3 data/candidates.db "PRAGMA journal_mode=WAL;"
+   ```
+
+3. **FileNotFoundError: corpus.jsonl**
+   ```bash
+   # Verify data path or specify custom location  
+   python load_inputs.py --corpus /path/to/my_corpus.jsonl
+   ```
+
+4. **HuggingFace model download timeout**
+   ```bash
+   export HF_HUB_DISABLE_PROGRESS_BARS=1
+   pip install --upgrade transformers
+   ```
+
+5. **Streamlit port conflict**
+   ```bash
+   python launch_app.py --port 8502
+   ```
+
+### Performance Tips
+
+- **GPU Memory**: Monitor with `nvidia-smi` during embedding generation
+- **Disk Space**: Pipeline generates ~2GB intermediate files per 1M papers
+- **CPU Cores**: Parallel processing scales with available cores
+- **Memory**: Recommend 16GB+ RAM for full corpus processing
+
 ## Development
 
-### Dashboard Development
-The Streamlit dashboard provides a modern interface for rapid prototyping and experimentation:
-- **Modular architecture**: Separate UI components and pipeline wrappers
-- **Caching system**: Efficient data loading and processing
-- **Testing framework**: Unit tests and sample data for validation
-- **Future-ready**: Architecture supports LLM integration and model comparison
-
-See [`streamlit_dashboard/README.md`](streamlit_dashboard/README.md) for detailed dashboard documentation.
-
-### General Development
-This project includes configuration for AI development assistance. See [`AGENT.md`](AGENT.md) for:
-- Build and test commands
-- Architecture overview
-- Code style guidelines
+See [`AGENT.md`](AGENT.md) for detailed development setup, commands, and coding standards.
 
 ## Repository
 
