@@ -1,168 +1,100 @@
-# Entity Extractor
+# Agent Configuration
 
-An intelligent entity extraction system for academic literature, specifically designed to identify and classify software mentions in scientific papers from the Science Explorer (SciX, https://scixplorer.org).
+🔧 **Development Environment Setup for Entity Extractor**
 
-## Overview
+Always activate the local Python environment before running any code or installing dependencies.
 
-This repository contains a comprehensive pipeline for extracting software mentions from academic papers using advanced NLP techniques including embeddings, named entity recognition, and heuristic matching.
-
-## Project Structure
-
-```
-entity_extractor/
-├── software_mentions_pipeline/    # Main extraction pipeline
-│   ├── load_inputs.py            # Data initialization
-│   ├── batch_filter*.py          # Exact matching stages
-│   ├── embed_*.py                # Embedding generation
-│   ├── score_*.py                # Context scoring
-│   ├── assign_likelihood_labels.py # Classification
-│   ├── labeling_tool.py          # Manual annotation
-│   └── data/                     # Data files and outputs
-├── streamlit_dashboard/          # Interactive web dashboard
-│   ├── app.py                    # Main Streamlit application
-│   ├── components/               # UI components
-│   ├── core_pipeline/            # Pipeline wrappers
-│   ├── sample_data/              # Sample data for testing
-│   └── README.md                 # Dashboard documentation
-├── AGENT.md                      # Development configuration
-└── scix_entity_pipeline_diagram.md # Architecture documentation
-```
-
-## Quick Start
-
-### Option 1: Interactive Dashboard (Recommended)
-
-**For rapid testing and experimentation:**
+## Project Bootstrap Checklist
 
 ```bash
-# Install dependencies
-pip install streamlit pandas numpy transformers sentence-transformers tqdm
+# 1. Environment setup
+python -m venv venv && source venv/bin/activate
+pip install --upgrade pip setuptools wheel
 
-# Launch the dashboard
-cd streamlit_dashboard
-python launch_app.py
+# 2. Install dependencies
+pip install -r software_mentions_pipeline/requirements.txt
+
+# 3. Install development tools (optional but recommended)
+pip install black isort flake8 mypy pytest pre-commit
+
+# 4. Setup pre-commit hooks (optional)
+pre-commit install
+
+# 5. Test installation
+python software_mentions_pipeline/test_indus_ner_tags.py
 ```
 
-Open your browser to `http://localhost:8501` for an interactive interface with:
-- Entity input and ontology selection
-- Real-time pipeline execution
-- Interactive results with filtering and export
-- Parameter tuning and visualization
+## Build/Test Commands
 
-### Option 2: Command Line Pipeline
+### Environment Management
+- `source venv/bin/activate` - Activate virtual environment (ALWAYS FIRST)
+- `pip install -r software_mentions_pipeline/requirements.txt` - Install dependencies
+- `pip list | grep -E "(transformers|sentence-transformers|streamlit)"` - Verify key packages
 
-**For production/batch processing:**
+### Testing & Validation
+- `python software_mentions_pipeline/test_indus_ner_tags.py` - Test NER model functionality
+- `pytest software_mentions_pipeline/tests/` - Run unit tests (if available)
+- `python -c "import transformers; print('✓ Transformers OK')"` - Quick dependency check
 
-```bash
-# Install dependencies
-cd software_mentions_pipeline
-pip install -r requirements.txt
+### Pipeline Execution (Sequential Stages)
+1. `python software_mentions_pipeline/load_inputs.py` - Initialize database and load corpus/metadata
+2. `python software_mentions_pipeline/batch_filter.py` - Stage 1: Extract exact/fuzzy matches  
+3. `python software_mentions_pipeline/embed_contextual_mentions.py` - Generate embeddings for contexts
+4. `python software_mentions_pipeline/score_filtered_contexts.py` - Score context similarity
+5. `python software_mentions_pipeline/labeling_tool.py` - Manual labeling interface
+6. `python software_mentions_pipeline/assign_likelihood_labels.py` - Assign likelihood scores
 
-# Run the complete pipeline
-python load_inputs.py
-python batch_filter.py
-python embed_contextual_mentions.py
-python score_filtered_contexts.py
-python assign_likelihood_labels.py
-```
+### Dashboard & Interactive Tools
+- `python streamlit_dashboard/launch_app.py` - Launch Streamlit dashboard
+- `python streamlit_dashboard/launch_app.py --port 8502` - Use custom port
+- `streamlit run streamlit_dashboard/app.py` - Alternative launch method
 
-### Prerequisites
-- Python 3.9+
-- 4GB+ disk space for data files
-- GPU recommended for faster processing
+## Architecture
 
-See [`software_mentions_pipeline/README.md`](software_mentions_pipeline/README.md) for detailed CLI instructions.
+Entity extraction pipeline for scientific literature using NLP and ML:
+- **software_mentions_pipeline/**: Main pipeline for extracting software mentions from academic papers
+- **data/**: Contains corpus.jsonl (3GB papers), metadata (OntoSoft, ASCL), SQLite database
+- **Database**: SQLite with `candidates` table storing matches, contexts, embeddings, classifications
+- **Models**: INDUS NER (adsabs/nasa-smd-ibm-v0.1_NER_DEAL), sentence-transformers for embeddings
 
-## What it Does
+## Coding Standards & Best Practices
 
-The pipeline processes academic papers to:
+### Python Code Style
+- **Formatting**: Black 23.7+ with line length 88, isort profile=black
+- **Type hints**: Use throughout, mypy strict mode (opt-in per module)
+- **Docstrings**: Google style for all public functions and classes
+- **File paths**: Always use `pathlib.Path` instead of string concatenation
+- **Constants**: UPPERCASE at module level (e.g., `CORPUS_PATH`, `DB_PATH`)
+- **String formatting**: f-strings preferred over `.format()` or `%`
 
-1. **Extract software names** from OntoSoft and ASCL registries
-2. **Find exact matches** in paper text (titles, abstracts, body)
-3. **Generate embeddings** for context understanding using NASA's SentenceTransformer model
-4. **Score matches** using multiple signals:
-   - Semantic similarity between context and software description
-   - Keyword heuristics (software, model, algorithm, etc.)
-   - Named Entity Recognition from specialized models
-5. **Classify likelihood** of true software mentions
-6. **Export results** for further analysis or model training
+### Scientific Computing Conventions
+- **Progress bars**: Use `tqdm` for long-running operations (>10 seconds)
+- **Database**: SQLite with proper connection handling and WAL mode
+- **ML Models**: HuggingFace transformers with explicit device management
+- **Data serialization**: JSONL for streaming, JSON for small configs
+- **Memory management**: Use generators for large datasets, chunked processing
 
-## Key Features
+### Environment Variables
+Document key environment variables in code:
+- `SOFTEXTRACT_DB_PATH` - Override default database location
+- `HF_HOME` - HuggingFace cache directory
+- `CUDA_VISIBLE_DEVICES` - GPU selection for embedding generation
+- `STREAMLIT_SERVER_PORT` - Dashboard port configuration
 
-### Core Pipeline
-- **Multi-modal scoring**: Combines embeddings, NER, and keyword heuristics
-- **Modular pipeline**: Each stage can be run independently
-- **Manual annotation tools**: Built-in labeling interface for quality assurance
-- **Multiple output formats**: JSON, SQLite, NER training data
-- **Robust matching**: Handles both exact and fuzzy matching strategies
+### Error Handling
+- Use specific exception types, not bare `except:`
+- Log errors with context using Python logging module
+- Provide actionable error messages with suggested fixes
+- Handle GPU/CPU fallback gracefully in ML components
 
-### Interactive Dashboard
-- **Real-time experimentation**: Test different parameters instantly
-- **Entity management**: Custom entities or ontology selection (OntoSoft, ASCL)
-- **Parameter tuning**: Adjust context windows, thresholds, and matching types
-- **Visual analytics**: Interactive results with filtering and statistics
-- **Export functionality**: Download results in multiple formats
-- **Sample data included**: Ready-to-use dataset for testing
+### Testing Philosophy
+- **Unit tests**: pytest for individual functions and components
+- **Integration tests**: End-to-end pipeline validation with sample data  
+- **Performance tests**: Benchmark critical paths (embedding, filtering)
+- **Smoke tests**: Quick validation that all imports and basic functionality work
 
-## Data Sources
-
-- **Paper corpus**: ADS academic papers (corpus.jsonl)
-- **Software registries**: 
-  - [OntoSoft](https://ontosoft.org/) - Community software registry
-  - [ASCL](https://ascl.net/) - Astrophysics Source Code Library
-
-## Models Used
-
-- **Embeddings**: `nasa-impact/nasa-smd-ibm-st-v2`
-- **NER Models**:
-  - `oeg/software_benchmark_multidomain`
-  - `adsabs/nasa-smd-ibm-v0.1_NER_DEAL` (INDUS)
-
-## Dashboard Usage
-
-The Streamlit dashboard provides an intuitive interface for entity extraction:
-
-1. **Entity Input**: 
-   - Enter custom entities manually
-   - Select from OntoSoft or ASCL ontologies
-   - Search and filter available entities
-
-2. **Configuration**:
-   - Set corpus sample size (100-5000 documents)
-   - Choose document sections (title, abstract, body)
-   - Adjust context window size and matching types
-
-3. **Execution**:
-   - Run complete pipeline with progress tracking
-   - Step-by-step execution for granular control
-   - Real-time status updates and metrics
-
-4. **Results**:
-   - Interactive table with filtering by entity, match type, and section
-   - Export options (CSV, JSON, raw data)
-   - Statistics and visualizations
-
-## Development
-
-### Dashboard Development
-The Streamlit dashboard provides a modern interface for rapid prototyping and experimentation:
-- **Modular architecture**: Separate UI components and pipeline wrappers
-- **Caching system**: Efficient data loading and processing
-- **Testing framework**: Unit tests and sample data for validation
-- **Future-ready**: Architecture supports LLM integration and model comparison
-
-See [`streamlit_dashboard/README.md`](streamlit_dashboard/README.md) for detailed dashboard documentation.
-
-### General Development
-This project includes configuration for AI development assistance. See [`AGENT.md`](AGENT.md) for:
-- Build and test commands
-- Architecture overview
-- Code style guidelines
-
-## Repository
-
-**GitHub**: https://github.com/adsabs/entity_extractor
-
-## License
-
-Part of the ADS (Astrophysics Data System) project by the Smithsonian Astrophysical Observatory.
+### Git Workflow
+- **Branch naming**: `feature/description`, `bugfix/issue-123`, `docs/section-name`
+- **Commit messages**: Conventional commits format with scope
+- **Pre-commit hooks**: Run black, isort, flake8 before commits
+- **PR checklist**: Tests pass, documentation updated, performance unchanged
