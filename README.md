@@ -5,7 +5,7 @@
 Always activate the local Python environment before running any code or installing dependencies.
 
 ## Project Bootstrap Checklist
-
+Note: If running this on scixmuse the virtual environment has already been created and you can skip this step.
 ```bash
 # 1. Environment setup
 python -m venv venv && source venv/bin/activate
