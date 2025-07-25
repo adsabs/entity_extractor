@@ -257,7 +257,7 @@ The interactive dashboard provides comprehensive tools for reviewing and curatin
 
 3. **Multi-Model NER Analysis**:
    - **INDUS NER** (`adsabs/nasa-smd-ibm-v0.1_NER_DEAL`): Domain-specific astrophysics model
-   - **spaCy NER** (`en_core_web_sm`): General-purpose English model
+   - **OEG NER** (`oeg/software_benchmark_multidomain`): Specialized software entity extraction model
    - Side-by-side entity comparison with confidence scores
    - Highlighted entity recognition in context
 
@@ -329,7 +329,7 @@ streamlit run streamlit_dashboard/app.py
 ## 💻 Tech Stack
 
 - **NLP**: HuggingFace Transformers 4.39+ / Sentence-Transformers 2.4
-- **Regex/Tokenization**: spaCy 3.x with en_core_web_sm model
+- **NER Models**: OEG software_benchmark_multidomain model via HuggingFace transformers
 - **Storage**: SQLite with WAL mode + pandas for export
 - **ML Acceleration**: CUDA-enabled PyTorch with CPU fallback
 - **Large-file handling**: Memory-mapped JSONL iterator, chunked DB inserts

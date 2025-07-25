@@ -127,7 +127,7 @@ python test_indus_ner_tags.py
 ### Output Files
 - **labeled_contexts.jsonl**: Full context records with likelihood labels
 - **labeled_entities.jsonl**: Deduplicated (bibcode, label) pairs
-- **ner_training_data.jsonl**: SpaCy-format training data
+- **ner_training_data.jsonl**: HuggingFace-format training data
 
 ### SQLite Schema (`candidates` table)
 | Column | Description |
