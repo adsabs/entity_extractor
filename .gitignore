@@ -37,4 +37,13 @@ scix_mention_env/
 
 # OS
 .DS_Store
-Thumbs.db 
+Thumbs.db
+
+# Large data files
+*.csv
+*.gzip
+*.parquet
+*.db
+term_csv_files/
+optimized_extractor/results/
+optimized_extractor/optimized_extractor/results/ 
