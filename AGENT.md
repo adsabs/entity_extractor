@@ -38,11 +38,25 @@ python software_mentions_pipeline/test_indus_ner_tags.py
 
 ### Pipeline Execution (Sequential Stages)
 1. `python software_mentions_pipeline/load_inputs.py` - Initialize database and load corpus/metadata
-2. `python software_mentions_pipeline/batch_filter.py` - Stage 1: Extract exact/fuzzy matches  
-3. `python software_mentions_pipeline/embed_contextual_mentions.py` - Generate embeddings for contexts
-4. `python software_mentions_pipeline/score_filtered_contexts.py` - Score context similarity
-5. `python software_mentions_pipeline/labeling_tool.py` - Manual labeling interface
-6. `python software_mentions_pipeline/assign_likelihood_labels.py` - Assign likelihood scores
+2. **Filtering** (choose one approach):
+   - `python software_mentions_pipeline/batch_filter.py` - Standard exact/fuzzy matches
+   - `python software_mentions_pipeline/batch_filter_context.py` - Context-level filtering
+3. **Embedding** (with optional pre-computation):
+   - `python software_mentions_pipeline/embed_contextual_mentions.py` - Generate context embeddings
+   - `python software_mentions_pipeline/embed_software_library.py` - Pre-compute registry embeddings (optional)
+4. **Scoring** (choose one approach):
+   - `python software_mentions_pipeline/score_filtered_contexts.py` - Standard multi-signal scoring
+   - `python software_mentions_pipeline/score_likelihoods_and_filter.py` - Experimental scoring
+5. `python software_mentions_pipeline/assign_likelihood_labels.py` - Assign likelihood classifications
+6. `python software_mentions_pipeline/labeling_tool.py` - Manual labeling interface
+7. `python software_mentions_pipeline/export_ner_training_data.py` - Export training data and CSV
+
+### Dashboard Dataset Regeneration
+```bash
+# Generate complete dashboard dataset (after pipeline completion)
+python software_mentions_pipeline/score_likelihoods_and_filter.py --min-score 0.8
+python software_mentions_pipeline/export_ner_training_data.py --csv-path optimized_extractor/results/exports/
+```
 
 ### Dashboard & Interactive Tools
 - `python streamlit_dashboard/launch_app.py` - Launch Streamlit dashboard

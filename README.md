@@ -41,12 +41,15 @@ Open `http://localhost:8501` for an interactive interface with sample data inclu
 ## 📁 Repository Map
 
 <details>
-<summary><strong>software_mentions_pipeline/</strong> - Core extraction pipeline (8 stages)</summary>
+<summary><strong>software_mentions_pipeline/</strong> - Core extraction pipeline (8+ stages)</summary>
 
 - **load_inputs.py** - Initialize database and load corpus/metadata
 - **batch_filter.py** - Stage 1: Extract exact/fuzzy matches from text
+- **batch_filter_context.py** - Alternative: Context-level fuzzy filtering
 - **embed_contextual_mentions.py** - Generate sentence embeddings for contexts
+- **embed_software_library.py** - Pre-compute embeddings for software registries
 - **score_filtered_contexts.py** - Score context similarity using multiple signals
+- **score_likelihoods_and_filter.py** - Alternative: Experimental scoring approach
 - **assign_likelihood_labels.py** - Assign final likelihood classifications
 - **labeling_tool.py** - Manual annotation interface for quality assurance
 - **export_ner_training_data.py** - Export labeled data for model training
@@ -118,11 +121,15 @@ python software_mentions_pipeline/test_indus_ner_tags.py
 
 ### Pipeline Execution (Sequential Stages)
 1. `python software_mentions_pipeline/load_inputs.py` - Initialize database and load corpus/metadata
-2. `python software_mentions_pipeline/batch_filter.py` - Stage 1: Extract exact/fuzzy matches  
+2. `python software_mentions_pipeline/batch_filter.py` - Stage 1: Extract exact/fuzzy matches
+   - *Alternative*: `batch_filter_context.py` - Context-level filtering approach
 3. `python software_mentions_pipeline/embed_contextual_mentions.py` - Generate embeddings for contexts
+   - *Optional*: `embed_software_library.py` - Pre-compute registry embeddings
 4. `python software_mentions_pipeline/score_filtered_contexts.py` - Score context similarity
-5. `python software_mentions_pipeline/labeling_tool.py` - Manual labeling interface
-6. `python software_mentions_pipeline/assign_likelihood_labels.py` - Assign likelihood scores
+   - *Alternative*: `score_likelihoods_and_filter.py` - Experimental scoring
+5. `python software_mentions_pipeline/assign_likelihood_labels.py` - Assign likelihood scores
+6. `python software_mentions_pipeline/labeling_tool.py` - Manual labeling interface
+7. `python software_mentions_pipeline/export_ner_training_data.py` - Export training data
 
 ### Dashboard & Interactive Tools
 - `streamlit run streamlit_dashboard/app.py` - Launch streamlit dashboard
@@ -140,15 +147,23 @@ Entity extraction pipeline for scientific literature using NLP and ML:
 ```mermaid
 graph LR
     A[corpus.jsonl<br/>3GB papers] -->|Stage 1| B(load_inputs.py)
-    B -->|labels.json| C(batch_filter.py)
-    C -->|context windows| D(embed_contextual_mentions.py)
-    D -->|vectors| E(score_filtered_contexts.py)
-    E -->|scores+signals| F(assign_likelihood_labels.py)
-    F -->|labeled JSONL + SQLite| G(export_ner_training_data.py)
+    B -->|labels.json| C{Filtering Approach}
+    C -->|Standard| D[batch_filter.py]
+    C -->|Context-based| E[batch_filter_context.py]
+    D -->|context windows| F(embed_contextual_mentions.py)
+    E -->|context windows| F
+    F -->|vectors| G{Scoring Approach}
+    G -->|Standard| H[score_filtered_contexts.py]
+    G -->|Experimental| I[score_likelihoods_and_filter.py]
+    H -->|scores+signals| J[assign_likelihood_labels.py]
+    I -->|scores+signals| J
+    J -->|labeled data| K[labeling_tool.py]
+    K -->|validated labels| L[export_ner_training_data.py]
     
-    H[OntoSoft Registry] --> B
-    I[ASCL Registry] --> B
-    J[Custom Ontologies] --> B
+    M[OntoSoft Registry] --> B
+    N[ASCL Registry] --> B
+    O[Custom Ontologies] --> B
+    P[embed_software_library.py] -.->|pre-computed embeddings| F
 ```
 
 ### Stage-by-Stage Process
@@ -217,29 +232,60 @@ Document key environment variables in code:
   - `oeg/software_benchmark_multidomain`
   - `adsabs/nasa-smd-ibm-v0.1_NER_DEAL` (INDUS)
 
-## Dashboard Usage
+## 📈 Reference Dataset
 
-The Streamlit dashboard provides an intuitive interface for entity extraction:
+The system works with a large-scale curated dataset:
+- **Size**: 612,000+ software mention records
+- **Location**: `optimized_extractor/results/exports/software_mentions_all_with_labels.csv.gzip`
+- **Schema**: Extracted mentions with bibcodes, contexts, similarity scores, and curation labels
+- **Curation**: Delta-file system tracks manual label corrections with curator attribution
 
-1. **Entity Input**: 
-   - Enter custom entities manually
-   - Select from OntoSoft or ASCL ontologies
-   - Search and filter available entities
+## 🎯 Streamlit Curation Dashboard
 
-2. **Configuration**:
-   - Set corpus sample size (100-5000 documents)
-   - Choose document sections (title, abstract, body)
-   - Adjust context window size and matching types
+The interactive dashboard provides comprehensive tools for reviewing and curating software mentions:
 
-3. **Execution**:
-   - Run complete pipeline with progress tracking
-   - Step-by-step execution for granular control
-   - Real-time status updates and metrics
+### Key Capabilities
+1. **Autocomplete Search**: 
+   - Search across 612k+ software mentions by name
+   - Real-time filtering and match highlighting
+   - Software name extraction and fuzzy matching
 
-4. **Results**:
-   - Interactive table with filtering by entity, match type, and section
-   - Export options (CSV, JSON, raw data)
-   - Statistics and visualizations
+2. **Context Categorization**:
+   - **Positive contexts**: Previously validated software mentions
+   - **Uncurated contexts**: New mentions requiring review
+   - **Negative contexts**: False positives and rejections
+
+3. **Multi-Model NER Analysis**:
+   - **INDUS NER** (`adsabs/nasa-smd-ibm-v0.1_NER_DEAL`): Domain-specific astrophysics model
+   - **spaCy NER** (`en_core_web_sm`): General-purpose English model
+   - Side-by-side entity comparison with confidence scores
+   - Highlighted entity recognition in context
+
+4. **Label Curation System**:
+   - Inline label editing (positive/negative/unknown)
+   - Curator name attribution for accountability
+   - Pending changes queue with batch commit
+   - Delta file persistence (`curation_delta.csv`) preserves main dataset
+
+5. **Statistics & Navigation**:
+   - Real-time metrics: total mentions, unique software, paper count
+   - Paper-level context browsing
+   - Export capabilities for curated subsets
+
+### Quick Start
+```bash
+# Activate environment and launch
+source venv/bin/activate
+streamlit run streamlit_dashboard/app.py
+# Open http://localhost:8501
+```
+
+### Curator Workflow
+1. **Search** for software name (e.g., "Python", "MATLAB", "Astropy")
+2. **Review contexts** in categorized tabs (positive/uncurated/negative)
+3. **Run NER models** to validate entity detection
+4. **Queue label changes** with curator attribution
+5. **Commit changes** to delta file (preserves main dataset integrity)
 
 ## 🔧 Extending Functionality
 
