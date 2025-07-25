@@ -55,9 +55,23 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+def load_delta_changes():
+    """Load any existing curation changes from delta file."""
+    delta_path = Path("curation_delta.csv")
+    
+    if not delta_path.exists():
+        return pd.DataFrame(columns=['row_id', 'bibcode_label', 'curator', 'timestamp'])
+    
+    try:
+        return pd.read_csv(delta_path)
+    except Exception as e:
+        st.warning(f"Could not load delta file: {e}")
+        return pd.DataFrame(columns=['row_id', 'bibcode_label', 'curator', 'timestamp'])
+
+
 @st.cache_data
 def load_software_mentions_data():
-    """Load the software mentions data from compressed CSV."""
+    """Load the software mentions data from compressed CSV with row_id and delta merging."""
     csv_path = Path("../optimized_extractor/results/exports/software_mentions_all_with_labels.csv.gzip")
     
     if not csv_path.exists():
@@ -67,7 +81,28 @@ def load_software_mentions_data():
     
     try:
         with st.spinner("Loading software mentions data (612k+ records)..."):
+            # Load main dataset
             df = pd.read_csv(csv_path, compression='gzip')
+            
+            # Add row_id as unique identifier for each row
+            df = df.reset_index(drop=True)
+            df['row_id'] = df.index
+            
+            # Load any curation changes from delta file
+            delta_df = load_delta_changes()
+            
+            # Merge delta changes with main dataset
+            if not delta_df.empty:
+                # Create a mapping of row_id to updated bibcode_label
+                label_updates = dict(zip(delta_df['row_id'], delta_df['bibcode_label']))
+                
+                # Apply updates to main dataframe
+                for row_id, new_label in label_updates.items():
+                    if row_id < len(df):
+                        df.loc[row_id, 'bibcode_label'] = new_label
+                
+                st.info(f"✅ Applied {len(label_updates)} curation changes from delta file")
+            
         return df
     except Exception as e:
         st.error(f"❌ Error loading data: {e}")
@@ -337,40 +372,103 @@ def main():
                     # Context analysis with NER
                     st.write("**Context Analysis with NER:**")
                     
-                    # Select a context to analyze
+                    # Filter contexts with text
                     contexts_with_text = group[group['context'].notna() & (group['context'] != '')]
                     
                     if len(contexts_with_text) > 0:
-                        context_options = []
-                        for idx, (_, row) in enumerate(contexts_with_text.iterrows()):
-                            preview = str(row['context'])[:50] + "..." if len(str(row['context'])) > 50 else str(row['context'])
-                            context_options.append(f"{idx+1}. {row['bibcode']} - {preview}")
+                        # Categorize contexts based on bibcode_label
+                        positive_contexts = contexts_with_text[contexts_with_text['bibcode_label'] == 'positive']
+                        negative_contexts = contexts_with_text[
+                            (contexts_with_text['bibcode_label'] == 'negative') | 
+                            (contexts_with_text['bibcode_label'] == 'unknown')
+                        ]
+                        uncurated_contexts = contexts_with_text[
+                            ~contexts_with_text['bibcode_label'].isin(['positive', 'negative', 'unknown'])
+                        ]
                         
-                        selected_idx = st.selectbox(
-                            "Select context to analyze:",
-                            range(len(context_options)),
-                            format_func=lambda x: context_options[x],
-                            key=f"context_{term_name}"
-                        )
+                        # Create tabs for different context categories
+                        tab1, tab2, tab3 = st.tabs([
+                            f"✅ Positive ({len(positive_contexts)})",
+                            f"📝 Uncurated ({len(uncurated_contexts)})",
+                            f"🚫 Negative ({len(negative_contexts)})"
+                        ])
                         
-                        selected_context = contexts_with_text.iloc[selected_idx]['context']
+                        selected_context = None
+                        selected_row_id = None
                         
-                        # Show original context
-                        st.write("**Original Context:**")
-                        st.text_area("Context", value=selected_context, height=100, disabled=True, key=f"orig_{term_name}_{selected_idx}", label_visibility="collapsed")
+                        with tab1:
+                            if len(positive_contexts) > 0:
+                                context_options = []
+                                for idx, (_, row) in enumerate(positive_contexts.iterrows()):
+                                    preview = str(row['context'])[:50] + "..." if len(str(row['context'])) > 50 else str(row['context'])
+                                    context_options.append(f"{idx+1}. {row['bibcode']} - {preview}")
+                                
+                                selected_idx = st.selectbox(
+                                    "Select positive context:",
+                                    range(len(context_options)),
+                                    format_func=lambda x: context_options[x],
+                                    key=f"positive_context_{term_name}"
+                                )
+                                selected_context = positive_contexts.iloc[selected_idx]['context']
+                                selected_row_id = positive_contexts.iloc[selected_idx]['row_id']
+                            else:
+                                st.info("No positive contexts available")
                         
-                        # Run NER models
-                        if selected_models:
+                        with tab2:
+                            if len(uncurated_contexts) > 0:
+                                context_options = []
+                                for idx, (_, row) in enumerate(uncurated_contexts.iterrows()):
+                                    preview = str(row['context'])[:50] + "..." if len(str(row['context'])) > 50 else str(row['context'])
+                                    context_options.append(f"{idx+1}. {row['bibcode']} - {preview}")
+                                
+                                selected_idx = st.selectbox(
+                                    "Select uncurated context:",
+                                    range(len(context_options)),
+                                    format_func=lambda x: context_options[x],
+                                    key=f"uncurated_context_{term_name}"
+                                )
+                                selected_context = uncurated_contexts.iloc[selected_idx]['context']
+                                selected_row_id = uncurated_contexts.iloc[selected_idx]['row_id']
+                            else:
+                                st.info("No uncurated contexts available")
+                        
+                        with tab3:
+                            if len(negative_contexts) > 0:
+                                context_options = []
+                                for idx, (_, row) in enumerate(negative_contexts.iterrows()):
+                                    preview = str(row['context'])[:50] + "..." if len(str(row['context'])) > 50 else str(row['context'])
+                                    context_options.append(f"{idx+1}. {row['bibcode']} - {preview}")
+                                
+                                selected_idx = st.selectbox(
+                                    "Select negative context:",
+                                    range(len(context_options)),
+                                    format_func=lambda x: context_options[x],
+                                    key=f"negative_context_{term_name}"
+                                )
+                                selected_context = negative_contexts.iloc[selected_idx]['context']
+                                selected_row_id = negative_contexts.iloc[selected_idx]['row_id']
+                            else:
+                                st.info("No negative contexts available")
+                        
+                        # Show original context (only if one is selected)
+                        if selected_context:
+                            st.write("**Original Context:**")
+                            st.text_area("Context", value=selected_context, height=100, disabled=True, key=f"orig_{term_name}_{selected_row_id}", label_visibility="collapsed")
+                        
+                        # Run NER models (only if context is selected)
+                        if selected_context and selected_models:
                             st.write("**NER Analysis:**")
                             
                             for model_name in selected_models:
                                 with st.expander(f"🤖 {model_name}", expanded=True):
-                                    if st.button(f"Run {model_name}", key=f"ner_{term_name}_{model_name}_{selected_idx}"):
+                                    if st.button(f"Run {model_name}", key=f"ner_{term_name}_{model_name}_{selected_row_id}"):
                                         with st.spinner(f"Running {model_name}..."):
                                             ner_results = run_ner_on_context(selected_context, model_name)
                                         render_ner_results(ner_results, selected_context)
-                        else:
+                        elif selected_context and not selected_models:
                             st.info("Select NER models to analyze contexts")
+                        elif not selected_context:
+                            st.info("Select a context from the tabs above to run NER analysis")
                     else:
                         st.info("No contexts available for this software")
                 
