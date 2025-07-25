@@ -105,6 +105,13 @@ def load_software_mentions_data():
                 
                 st.info(f"✅ Applied {len(label_updates)} curation changes from delta file")
             
+            # Add software_key column for exact matching
+            df['software_key'] = (
+                df['term_name']
+                .fillna('')
+                .apply(lambda x: str(x).split(':')[0].strip().lower())
+            )
+            
         return df
     except Exception as e:
         st.error(f"❌ Error loading data: {e}")
@@ -116,18 +123,23 @@ def search_term(df: pd.DataFrame, search_query: str) -> pd.DataFrame:
     if df is None:
         return pd.DataFrame()
     
-    # Search by term name (case-insensitive)
-    results = df[df['term_name'].str.contains(search_query, case=False, na=False)]
+    query = search_query.strip().lower()
+    if not query:
+        return df
     
-    if len(results) == 0:
-        # Also search by extracted software name (before colon)
-        df_copy = df.copy()
-        df_copy['software_name'] = df_copy['term_name'].apply(
-            lambda x: x.split(':')[0].strip() if ':' in str(x) else str(x)
-        )
-        results = df_copy[df_copy['software_name'].str.contains(search_query, case=False, na=False)]
+    # 1) Exact match against canonical software key (highest priority)
+    exact_results = df[df['software_key'] == query]
+    if len(exact_results) > 0:
+        return exact_results
     
-    return results
+    # 2) Fallback: fuzzy contains search on term_name (previous behavior)
+    fuzzy_results = df[df['term_name'].str.contains(search_query, case=False, na=False)]
+    if len(fuzzy_results) > 0:
+        return fuzzy_results
+    
+    # 3) Last resort: contains search on software_key  
+    fuzzy_key_results = df[df['software_key'].str.contains(query, na=False)]
+    return fuzzy_key_results
 
 
 def get_available_ner_models():
