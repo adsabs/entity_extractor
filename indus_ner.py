@@ -1,46 +1,55 @@
-import pandas as pd
-from transformers import AutoTokenizer, AutoModelForTokenClassification, pipeline
+# run_ner_indus.py
 
-# Load CSV
-df = pd.read_csv("zeus_negative_bibcodes.csv")  # Change this path as needed
+import csv
+from transformers import pipeline
+from tqdm import tqdm
 
-# Load model and tokenizer
-tokenizer = AutoTokenizer.from_pretrained("adsabs/nasa-smd-ibm-v0.1_NER_DEAL")
-model = AutoModelForTokenClassification.from_pretrained("adsabs/nasa-smd-ibm-v0.1_NER_DEAL")
-ner_pipeline = pipeline("ner", model=model, tokenizer=tokenizer, aggregation_strategy="simple")
+# Set up INDUS NER model
+ner = pipeline("ner", model="adsabs/nasa-smd-ibm-v0.1_NER_DEAL", aggregation_strategy="simple")
 
-# Chunking helper: splits text into smaller segments
-def chunk_text(text, max_tokens=512, overlap=50):
-    words = text.split()
-    chunks = []
-    start = 0
-    while start < len(words):
-        end = start + max_tokens
-        chunk = " ".join(words[start:end])
-        chunks.append(chunk)
-        start += max_tokens - overlap
-    return chunks
+# Simulated function – replace this with real fulltext fetching logic
+def get_bibcode_context(bibcode):
+    return f"Simulated text mentioning {bibcode} with software like GALFIT or ZEUS."
 
-# Apply NER to each row with chunking
-def extract_entities(row):
-    text = row["term_context"]
-    if pd.isna(text) or not isinstance(text, str) or not text.strip():
-        return []
-    
-    entities = []
-    chunks = chunk_text(text)
-    for chunk in chunks:
+# Open input/output
+with open('positive_bibcodes.csv', newline='') as f_in, open('ner_results_indus.csv', 'w', newline='') as f_out:
+    reader = csv.DictReader(f_in)
+    writer = csv.DictWriter(f_out, fieldnames=[
+        'Term', 'Bibcode', 'Model', 'Success', 'Term Type', 'Context', 'Notes'
+    ])
+    writer.writeheader()
+
+    for row in tqdm(reader):
+        term = row['Term']
+        bibcode = row['Bibcode']
+        context = get_bibcode_context(bibcode)
+        model = "INDUS"
+        found = False
+        success = False
+        entity_type = "none"
+        notes = ""
+
         try:
-            chunk_entities = ner_pipeline(chunk)
-            entities.extend([(e["word"], e["entity_group"], round(e["score"], 4)) for e in chunk_entities])
+            results = ner(context)
+            for r in results:
+                if r['word'].lower() == term.lower():
+                    found = True
+                    entity_type = r['entity_group']
+                    success = (entity_type.lower() == 'software')
+                    break
+            if not found:
+                notes = "Term not found in context"
         except Exception as e:
-            print(f"NER error on chunk: {e}")
-            continue
-    return entities
+            notes = f"NER error: {e}"
 
-# Run NER
-df["entities"] = df.apply(extract_entities, axis=1)
+        writer.writerow({
+            'Term': term,
+            'Bibcode': bibcode,
+            'Model': model,
+            'Success': success,
+            'Term Type': entity_type,
+            'Context': context,
+            'Notes': notes
+        })
 
-# Save output
-df.to_csv("output_zeus_neg_ner_indus.csv", index=False)
-print("✅ Saved to output_with_ner.csv")
+print("✅ NER results written to ner_results_indus.csv")

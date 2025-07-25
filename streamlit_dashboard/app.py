@@ -58,7 +58,7 @@ st.markdown("""
 @st.cache_data
 def load_software_mentions_data():
     """Load the software mentions data from compressed CSV."""
-    csv_path = Path("../optimized_extractor/results/exports/software_mentions_all.csv.gzip")
+    csv_path = Path("../optimized_extractor/results/exports/software_mentions_all_with_labels.csv.gzip")
     
     if not csv_path.exists():
         st.error(f"❌ Data file not found at {csv_path}")
