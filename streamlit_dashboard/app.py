@@ -291,8 +291,148 @@ def render_ner_results(ner_results: Dict[str, Any], context: str):
     st.markdown(highlighted_text)
 
 
+def initialize_session_state():
+    """Initialize session state for curation tracking."""
+    if 'pending_changes' not in st.session_state:
+        st.session_state.pending_changes = {}
+    if 'curator_name' not in st.session_state:
+        st.session_state.curator_name = ""
+
+
+def add_pending_change(row_id: int, new_label: str, curator: str):
+    """Add a label change to the pending changes queue."""
+    st.session_state.pending_changes[row_id] = {
+        'bibcode_label': new_label,
+        'curator': curator,
+        'timestamp': pd.Timestamp.now().isoformat()
+    }
+
+
+def commit_pending_changes():
+    """Save all pending changes to the delta file."""
+    if not st.session_state.pending_changes:
+        return 0
+    
+    delta_path = Path("curation_delta.csv")
+    
+    # Convert pending changes to DataFrame
+    changes_data = []
+    for row_id, change_info in st.session_state.pending_changes.items():
+        changes_data.append({
+            'row_id': row_id,
+            'bibcode_label': change_info['bibcode_label'],
+            'curator': change_info['curator'],
+            'timestamp': change_info['timestamp']
+        })
+    
+    new_df = pd.DataFrame(changes_data)
+    
+    # Append to existing delta file or create new one
+    if delta_path.exists():
+        existing_df = pd.read_csv(delta_path)
+        # Remove any existing entries for the same row_ids to avoid duplicates
+        existing_df = existing_df[~existing_df['row_id'].isin(new_df['row_id'])]
+        combined_df = pd.concat([existing_df, new_df], ignore_index=True)
+    else:
+        combined_df = new_df
+    
+    # Save to file
+    combined_df.to_csv(delta_path, index=False)
+    
+    # Clear pending changes
+    change_count = len(st.session_state.pending_changes)
+    st.session_state.pending_changes = {}
+    
+    return change_count
+
+
+def render_label_curation_widget(row_id: int, current_label: str, context_key: str):
+    """Render label curation widget for a specific context."""
+    label_options = ['positive', 'negative', 'unknown']
+    
+    # Check if there's a pending change for this row
+    pending_label = st.session_state.pending_changes.get(row_id, {}).get('bibcode_label', current_label)
+    
+    # Show current and pending status
+    status_text = f"Current: **{current_label}**"
+    if row_id in st.session_state.pending_changes:
+        status_text += f" → Pending: **{pending_label}** ⏳"
+    
+    st.markdown(status_text)
+    
+    # Label selection
+    current_idx = label_options.index(pending_label) if pending_label in label_options else 0
+    
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        new_label = st.selectbox(
+            "Update label:",
+            label_options,
+            index=current_idx,
+            key=f"label_select_{context_key}_{row_id}",
+            label_visibility="collapsed"
+        )
+    
+    with col2:
+        if st.button("Queue Change", key=f"queue_change_{context_key}_{row_id}"):
+            if new_label != current_label and st.session_state.curator_name.strip():
+                add_pending_change(row_id, new_label, st.session_state.curator_name.strip())
+                st.success(f"Queued: {current_label} → {new_label}")
+                st.rerun()
+            elif not st.session_state.curator_name.strip():
+                st.error("Please enter curator name in sidebar")
+            else:
+                st.info("No change needed")
+
+
+def render_curation_sidebar():
+    """Render the curation controls in the sidebar."""
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🎯 Curation Controls")
+    
+    # Curator name input
+    st.session_state.curator_name = st.sidebar.text_input(
+        "Curator Name:",
+        value=st.session_state.curator_name,
+        help="Enter your name for attribution"
+    )
+    
+    # Show pending changes count
+    pending_count = len(st.session_state.pending_changes)
+    if pending_count > 0:
+        st.sidebar.warning(f"⏳ {pending_count} pending changes")
+        
+        # Show pending changes details
+        with st.sidebar.expander("View Pending Changes", expanded=False):
+            for row_id, change in st.session_state.pending_changes.items():
+                st.write(f"Row {row_id}: → **{change['bibcode_label']}**")
+        
+        # Commit button
+        if st.sidebar.button("💾 Commit All Changes", type="primary"):
+            if st.session_state.curator_name.strip():
+                committed_count = commit_pending_changes()
+                st.sidebar.success(f"✅ Committed {committed_count} changes!")
+                # Force refresh of cached data
+                st.cache_data.clear()
+                st.rerun()
+            else:
+                st.sidebar.error("Please enter curator name first")
+        
+        # Clear button
+        if st.sidebar.button("🗑️ Clear All Pending"):
+            st.session_state.pending_changes = {}
+            st.sidebar.success("Cleared pending changes")
+            st.rerun()
+    else:
+        st.sidebar.info("No pending changes")
+
+
 def main():
     """Main dashboard function."""
+    
+    # Initialize session state
+    initialize_session_state()
     
     # Header
     st.markdown('<div class="main-header">🔍 Software Mentions Search & NER Dashboard</div>', unsafe_allow_html=True)
@@ -322,6 +462,9 @@ def main():
         default=[available_models[0]],
         help="Choose which NER models to apply to contexts"
     )
+    
+    # Render curation controls
+    render_curation_sidebar()
     
     # Main content
     if search_query:
@@ -409,8 +552,14 @@ def main():
                                     format_func=lambda x: context_options[x],
                                     key=f"positive_context_{term_name}"
                                 )
-                                selected_context = positive_contexts.iloc[selected_idx]['context']
-                                selected_row_id = positive_contexts.iloc[selected_idx]['row_id']
+                                
+                                selected_row = positive_contexts.iloc[selected_idx]
+                                selected_context = selected_row['context']
+                                selected_row_id = selected_row['row_id']
+                                
+                                # Add curation widget
+                                st.markdown("**Label Curation:**")
+                                render_label_curation_widget(selected_row_id, selected_row['bibcode_label'], f"positive_{term_name}")
                             else:
                                 st.info("No positive contexts available")
                         
@@ -427,8 +576,14 @@ def main():
                                     format_func=lambda x: context_options[x],
                                     key=f"uncurated_context_{term_name}"
                                 )
-                                selected_context = uncurated_contexts.iloc[selected_idx]['context']
-                                selected_row_id = uncurated_contexts.iloc[selected_idx]['row_id']
+                                
+                                selected_row = uncurated_contexts.iloc[selected_idx]
+                                selected_context = selected_row['context']
+                                selected_row_id = selected_row['row_id']
+                                
+                                # Add curation widget
+                                st.markdown("**Label Curation:**")
+                                render_label_curation_widget(selected_row_id, selected_row['bibcode_label'], f"uncurated_{term_name}")
                             else:
                                 st.info("No uncurated contexts available")
                         
@@ -445,8 +600,14 @@ def main():
                                     format_func=lambda x: context_options[x],
                                     key=f"negative_context_{term_name}"
                                 )
-                                selected_context = negative_contexts.iloc[selected_idx]['context']
-                                selected_row_id = negative_contexts.iloc[selected_idx]['row_id']
+                                
+                                selected_row = negative_contexts.iloc[selected_idx]
+                                selected_context = selected_row['context']
+                                selected_row_id = selected_row['row_id']
+                                
+                                # Add curation widget
+                                st.markdown("**Label Curation:**")
+                                render_label_curation_widget(selected_row_id, selected_row['bibcode_label'], f"negative_{term_name}")
                             else:
                                 st.info("No negative contexts available")
                         
