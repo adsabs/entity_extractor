@@ -12,6 +12,8 @@ from typing import List, Dict, Any
 sys.path.append(str(Path(__file__).parent.parent))
 
 from components.result_tables import render_results_table
+from components.autocomplete import render_autocomplete_search
+from components.autocomplete_simple import render_simple_autocomplete_search
 
 # Page configuration
 st.set_page_config(
@@ -305,13 +307,11 @@ def main():
     # Sidebar for search and NER configuration
     st.sidebar.header("🔧 Configuration")
     
-    # Search section
+    # Search section with autocomplete
     st.sidebar.subheader("1. Entity Search")
-    search_query = st.sidebar.text_input(
-        "Search for software:",
-        placeholder="e.g., astropy, PyVO, LENSKY",
-        help="Search for software mentions by name"
-    )
+    
+    # Use built-in search as default
+    search_query = render_simple_autocomplete_search()
     
     # NER Model selection
     st.sidebar.subheader("2. NER Models")
