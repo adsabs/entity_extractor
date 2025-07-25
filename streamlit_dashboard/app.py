@@ -132,26 +132,23 @@ def search_term(df: pd.DataFrame, search_query: str) -> pd.DataFrame:
 
 def get_available_ner_models():
     """Get list of available NER models."""
-    models = []
-    
-    # Always include INDUS NER (it's installed via transformers)
-    models.append("adsabs/nasa-smd-ibm-v0.1_NER_DEAL")  # INDUS NER - primary model for astronomy/astrophysics
-    
-    # Check if spaCy is available
-    try:
-        import spacy
-        models.append("en_core_web_sm")  # spaCy English - general purpose NER
-    except ImportError:
-        pass
-    
-    return models
+    return [
+        "adsabs/nasa-smd-ibm-v0.1_NER_DEAL",        # INDUS NER - primary model for astronomy/astrophysics
+        "oeg/software_benchmark_multidomain"        # OEG software NER - specialized for software entity extraction
+    ]
 
 
 @st.cache_resource
 def load_ner_model(model_name: str):
-    """Load and cache NER models."""
+    """Load and cache Hugging Face transformer NER models."""
     try:
-        if model_name == "adsabs/nasa-smd-ibm-v0.1_NER_DEAL":
+        # Supported transformer models
+        hf_models = {
+            "adsabs/nasa-smd-ibm-v0.1_NER_DEAL",
+            "oeg/software_benchmark_multidomain"
+        }
+        
+        if model_name in hf_models:
             from transformers import pipeline
             import torch
             ner_pipeline = pipeline(
@@ -162,12 +159,8 @@ def load_ner_model(model_name: str):
                 device=0 if torch.cuda.is_available() else -1
             )
             return {"pipeline": ner_pipeline, "status": "success"}
-        elif model_name == "en_core_web_sm":
-            import spacy
-            nlp = spacy.load("en_core_web_sm")
-            return {"pipeline": nlp, "status": "success"}
         else:
-            return {"pipeline": None, "status": "error", "error": f"Model {model_name} not implemented"}
+            return {"pipeline": None, "status": "error", "error": f"Model {model_name} not supported"}
     except Exception as e:
         return {"pipeline": None, "status": "error", "error": str(e)}
 
@@ -197,8 +190,11 @@ def run_ner_on_context(context: str, model_name: str):
         
         pipeline_obj = model_info["pipeline"]
         
-        if model_name == "adsabs/nasa-smd-ibm-v0.1_NER_DEAL":
-            # Process with INDUS NER using chunking
+        # Process transformer models that need chunking
+        if model_name in {
+            "adsabs/nasa-smd-ibm-v0.1_NER_DEAL",
+            "oeg/software_benchmark_multidomain"
+        }:
             entities = []
             chunks = chunk_text(context)
             
@@ -215,19 +211,6 @@ def run_ner_on_context(context: str, model_name: str):
                         })
                 except Exception as e:
                     continue
-                    
-        elif model_name == "en_core_web_sm":
-            # Process with spaCy
-            doc = pipeline_obj(context)
-            entities = []
-            for ent in doc.ents:
-                entities.append({
-                    "text": ent.text,
-                    "label": ent.label_,
-                    "score": 1.0,  # spaCy doesn't provide confidence scores by default
-                    "start": ent.start_char,
-                    "end": ent.end_char
-                })
         else:
             entities = []
         
@@ -536,9 +519,6 @@ def main():
                             f"🚫 Negative ({len(negative_contexts)})"
                         ])
                         
-                        selected_context = None
-                        selected_row_id = None
-                        
                         with tab1:
                             if len(positive_contexts) > 0:
                                 context_options = []
@@ -557,9 +537,25 @@ def main():
                                 selected_context = selected_row['context']
                                 selected_row_id = selected_row['row_id']
                                 
+                                # Show original context
+                                st.write("**Original Context:**")
+                                st.text_area("Context", value=selected_context, height=100, disabled=True, key=f"orig_pos_{term_name}_{selected_row_id}", label_visibility="collapsed")
+                                
                                 # Add curation widget
                                 st.markdown("**Label Curation:**")
                                 render_label_curation_widget(selected_row_id, selected_row['bibcode_label'], f"positive_{term_name}")
+                                
+                                # Run NER models
+                                if selected_models:
+                                    st.write("**NER Analysis:**")
+                                    for model_name in selected_models:
+                                        with st.expander(f"🤖 {model_name}", expanded=True):
+                                            if st.button(f"Run {model_name}", key=f"ner_pos_{term_name}_{model_name}_{selected_row_id}"):
+                                                with st.spinner(f"Running {model_name}..."):
+                                                    ner_results = run_ner_on_context(selected_context, model_name)
+                                                render_ner_results(ner_results, selected_context)
+                                else:
+                                    st.info("Select NER models in the sidebar to analyze contexts")
                             else:
                                 st.info("No positive contexts available")
                         
@@ -581,9 +577,25 @@ def main():
                                 selected_context = selected_row['context']
                                 selected_row_id = selected_row['row_id']
                                 
+                                # Show original context
+                                st.write("**Original Context:**")
+                                st.text_area("Context", value=selected_context, height=100, disabled=True, key=f"orig_unc_{term_name}_{selected_row_id}", label_visibility="collapsed")
+                                
                                 # Add curation widget
                                 st.markdown("**Label Curation:**")
                                 render_label_curation_widget(selected_row_id, selected_row['bibcode_label'], f"uncurated_{term_name}")
+                                
+                                # Run NER models
+                                if selected_models:
+                                    st.write("**NER Analysis:**")
+                                    for model_name in selected_models:
+                                        with st.expander(f"🤖 {model_name}", expanded=True):
+                                            if st.button(f"Run {model_name}", key=f"ner_unc_{term_name}_{model_name}_{selected_row_id}"):
+                                                with st.spinner(f"Running {model_name}..."):
+                                                    ner_results = run_ner_on_context(selected_context, model_name)
+                                                render_ner_results(ner_results, selected_context)
+                                else:
+                                    st.info("Select NER models in the sidebar to analyze contexts")
                             else:
                                 st.info("No uncurated contexts available")
                         
@@ -605,31 +617,28 @@ def main():
                                 selected_context = selected_row['context']
                                 selected_row_id = selected_row['row_id']
                                 
+                                # Show original context
+                                st.write("**Original Context:**")
+                                st.text_area("Context", value=selected_context, height=100, disabled=True, key=f"orig_neg_{term_name}_{selected_row_id}", label_visibility="collapsed")
+                                
                                 # Add curation widget
                                 st.markdown("**Label Curation:**")
                                 render_label_curation_widget(selected_row_id, selected_row['bibcode_label'], f"negative_{term_name}")
+                                
+                                # Run NER models
+                                if selected_models:
+                                    st.write("**NER Analysis:**")
+                                    for model_name in selected_models:
+                                        with st.expander(f"🤖 {model_name}", expanded=True):
+                                            if st.button(f"Run {model_name}", key=f"ner_neg_{term_name}_{model_name}_{selected_row_id}"):
+                                                with st.spinner(f"Running {model_name}..."):
+                                                    ner_results = run_ner_on_context(selected_context, model_name)
+                                                render_ner_results(ner_results, selected_context)
+                                else:
+                                    st.info("Select NER models in the sidebar to analyze contexts")
                             else:
                                 st.info("No negative contexts available")
-                        
-                        # Show original context (only if one is selected)
-                        if selected_context:
-                            st.write("**Original Context:**")
-                            st.text_area("Context", value=selected_context, height=100, disabled=True, key=f"orig_{term_name}_{selected_row_id}", label_visibility="collapsed")
-                        
-                        # Run NER models (only if context is selected)
-                        if selected_context and selected_models:
-                            st.write("**NER Analysis:**")
-                            
-                            for model_name in selected_models:
-                                with st.expander(f"🤖 {model_name}", expanded=True):
-                                    if st.button(f"Run {model_name}", key=f"ner_{term_name}_{model_name}_{selected_row_id}"):
-                                        with st.spinner(f"Running {model_name}..."):
-                                            ner_results = run_ner_on_context(selected_context, model_name)
-                                        render_ner_results(ner_results, selected_context)
-                        elif selected_context and not selected_models:
-                            st.info("Select NER models to analyze contexts")
-                        elif not selected_context:
-                            st.info("Select a context from the tabs above to run NER analysis")
+
                     else:
                         st.info("No contexts available for this software")
                 
