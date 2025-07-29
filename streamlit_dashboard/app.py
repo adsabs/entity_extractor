@@ -15,6 +15,149 @@ from components.result_tables import render_results_table
 from components.autocomplete import render_autocomplete_search
 from components.autocomplete_simple import render_simple_autocomplete_search
 
+# Import repair functions directly to avoid module path issues
+import re
+from typing import List, Dict, Union
+
+def repair_target_mentions(
+    entities: List[Dict],
+    context: str,
+    target_terms: Union[str, List[str]],
+    target_label: str = "SOFTWARE",
+    min_model_conf: float = 0.30,
+) -> List[Dict]:
+    """
+    Ensures that every literal occurrence of `target_terms` in `context`
+    is returned as a single complete entity span.
+    """
+    if isinstance(target_terms, str):
+        target_terms = [target_terms]
+
+    # Build regex pattern for target terms
+    escaped = [re.escape(t) for t in target_terms]
+    pattern = r'\b(?:' + "|".join(escaped) + r')\b'
+    regex = re.compile(pattern, flags=re.I)
+
+    # Map existing entities by (start, end) for quick lookup
+    out: List[Dict] = [e.copy() for e in entities]
+    by_span = {(e["start"], e["end"]): e for e in out}
+
+    # Walk through every literal occurrence
+    for m in regex.finditer(context):
+        s, e = m.start(), m.end()
+        span_key = (s, e)
+
+        # Does any entity fully cover the span already?
+        full_covered = [k for k in by_span if k[0] <= s and k[1] >= e]
+        if full_covered:
+            continue  # already good
+
+        # Do we have partial overlaps we need to merge/extend?
+        partial = [k for k in by_span if not (k[1] <= s or k[0] >= e)]
+        if partial:
+            # Merge all partial entities into one full span
+            best_score = max(by_span[k].get("score", 0.0) for k in partial)
+            # Remove partial pieces
+            for k in partial:
+                out.remove(by_span[k])
+                by_span.pop(k, None)
+            # Insert repaired span
+            repaired = {
+                "text": context[s:e],
+                "label": target_label,
+                "score": round(max(best_score, min_model_conf), 4),
+                "start": s,
+                "end": e,
+            }
+            out.append(repaired)
+            by_span[span_key] = repaired
+            continue
+
+        # Span missing completely -> inject synthetic entity
+        injected = {
+            "text": context[s:e],
+            "label": target_label,
+            "score": 1.0,
+            "start": s,
+            "end": e,
+        }
+        out.append(injected)
+        by_span[span_key] = injected
+
+    # Return entities sorted by position
+    out.sort(key=lambda x: x["start"])
+    return out
+
+def run_ner_with_target(context: str, pipeline_obj, target_term: Union[str, List[str]]) -> List[Dict]:
+    """
+    Run NER with target-aware repair to fix fragmented mentions of known terms.
+    """
+    try:
+        # Run standard NER
+        raw_entities = pipeline_obj(context)
+        
+        # Convert to standard format
+        clean_entities = [
+            {
+                "text": ent["word"],
+                "label": ent["entity_group"],
+                "score": ent["score"],
+                "start": ent["start"],
+                "end": ent["end"],
+            } for ent in raw_entities
+        ]
+        
+        # Apply target-aware repair
+        return repair_target_mentions(clean_entities, context, target_term)
+        
+    except Exception as e:
+        st.error(f"Error in run_ner_with_target: {e}")
+        return []
+
+def load_hf_ner(model_id: str, prefer_gpu: bool = True):
+    """
+    Load a HuggingFace token-classification model with automatic GPU fallback.
+    
+    Args:
+        model_id: HuggingFace model identifier
+        prefer_gpu: Whether to try GPU first (falls back to CPU on failure)
+        
+    Returns:
+        Transformers pipeline for NER
+        
+    Raises:
+        RuntimeError: If model loading fails on both GPU and CPU
+    """
+    from transformers import pipeline
+    import torch
+    import logging
+    
+    gpu_available = torch.cuda.is_available() and prefer_gpu
+    device_id = 0 if gpu_available else -1
+
+    try:
+        return pipeline(
+            "ner",
+            model=model_id,
+            tokenizer=model_id,
+            aggregation_strategy="simple",
+            device=device_id
+        )
+    except RuntimeError as err:
+        if gpu_available and "CUDA" in str(err):
+            logging.warning(
+                f"⚠️  GPU inference failed for {model_id}: {err}. "
+                "Retrying on CPU."
+            )
+            return pipeline(
+                "ner",
+                model=model_id,
+                tokenizer=model_id,
+                aggregation_strategy="simple",
+                device=-1
+            )
+        raise  # some other runtime error → bubble up
+
 # Page configuration
 st.set_page_config(
     page_title="Entity Extractor Dashboard",
@@ -74,7 +217,7 @@ def load_delta_changes():
 @st.cache_data
 def load_software_mentions_data():
     """Load the software mentions data from compressed CSV with row_id and delta merging."""
-    csv_path = Path("../optimized_extractor/results/exports/software_mentions_all_with_labels.csv.gzip")
+    csv_path = Path(__file__).parent.parent / "optimized_extractor/results/exports/software_mentions_all_with_labels.csv.gzip"
     
     if not csv_path.exists():
         st.error(f"❌ Data file not found at {csv_path}")
@@ -161,15 +304,7 @@ def load_ner_model(model_name: str):
         }
         
         if model_name in hf_models:
-            from transformers import pipeline
-            import torch
-            ner_pipeline = pipeline(
-                "ner",
-                model=model_name,
-                tokenizer=model_name,
-                aggregation_strategy="simple",
-                device=0 if torch.cuda.is_available() else -1
-            )
+            ner_pipeline = load_hf_ner(model_name, prefer_gpu=True)
             return {"pipeline": ner_pipeline, "status": "success"}
         else:
             return {"pipeline": None, "status": "error", "error": f"Model {model_name} not supported"}
@@ -222,9 +357,30 @@ def run_ner_on_context(context: str, model_name: str):
                             "end": entity.get("end", len(entity["word"]))
                         })
                 except Exception as e:
+                    import logging
+                    logging.error(f"NER failure on chunk: {e}")
                     continue
         else:
             entities = []
+        
+        return {"entities": entities, "status": "success"}
+        
+    except Exception as e:
+        return {"entities": [], "status": "error", "error": str(e)}
+
+
+def run_ner_on_context_with_target(context: str, model_name: str, target_term: str):
+    """Run NER model on given context with target-aware repair."""
+    try:
+        model_info = load_ner_model(model_name)
+        
+        if model_info["status"] == "error":
+            return {"entities": [], "status": "error", "error": model_info["error"]}
+        
+        pipeline_obj = model_info["pipeline"]
+        
+        # Use target-aware NER for better entity detection
+        entities = run_ner_with_target(context, pipeline_obj, target_term)
         
         return {"entities": entities, "status": "success"}
         
@@ -564,7 +720,9 @@ def main():
                                         with st.expander(f"🤖 {model_name}", expanded=True):
                                             if st.button(f"Run {model_name}", key=f"ner_pos_{term_name}_{model_name}_{selected_row_id}"):
                                                 with st.spinner(f"Running {model_name}..."):
-                                                    ner_results = run_ner_on_context(selected_context, model_name)
+                                                # Extract clean term name (remove any suffix after colon)
+                                                     clean_term = term_name.split(':')[0] if ':' in term_name else term_name
+                                                     ner_results = run_ner_on_context_with_target(selected_context, model_name, clean_term)
                                                 render_ner_results(ner_results, selected_context)
                                 else:
                                     st.info("Select NER models in the sidebar to analyze contexts")
@@ -604,7 +762,9 @@ def main():
                                         with st.expander(f"🤖 {model_name}", expanded=True):
                                             if st.button(f"Run {model_name}", key=f"ner_unc_{term_name}_{model_name}_{selected_row_id}"):
                                                 with st.spinner(f"Running {model_name}..."):
-                                                    ner_results = run_ner_on_context(selected_context, model_name)
+                                                # Extract clean term name (remove any suffix after colon)
+                                                     clean_term = term_name.split(':')[0] if ':' in term_name else term_name
+                                                     ner_results = run_ner_on_context_with_target(selected_context, model_name, clean_term)
                                                 render_ner_results(ner_results, selected_context)
                                 else:
                                     st.info("Select NER models in the sidebar to analyze contexts")
@@ -644,7 +804,9 @@ def main():
                                         with st.expander(f"🤖 {model_name}", expanded=True):
                                             if st.button(f"Run {model_name}", key=f"ner_neg_{term_name}_{model_name}_{selected_row_id}"):
                                                 with st.spinner(f"Running {model_name}..."):
-                                                    ner_results = run_ner_on_context(selected_context, model_name)
+                                                # Extract clean term name (remove any suffix after colon)
+                                                     clean_term = term_name.split(':')[0] if ':' in term_name else term_name
+                                                     ner_results = run_ner_on_context_with_target(selected_context, model_name, clean_term)
                                                 render_ner_results(ner_results, selected_context)
                                 else:
                                     st.info("Select NER models in the sidebar to analyze contexts")

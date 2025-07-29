@@ -26,17 +26,17 @@ RECOGNIZED_SOFTWARE_TAGS = {"SOFTWARE", "Software", "tool", "software", "applica
 device = 0 if torch.cuda.is_available() else -1
 ner_pipes = {
     "oeg": pipeline(
-        "ner",
+        "token-classification",
         model="oeg/software_benchmark_multidomain",
         tokenizer="oeg/software_benchmark_multidomain",
-        aggregation_strategy="simple",
+        aggregation_strategy="none",
         device=device
     ),
     "ibm": pipeline(
-        "ner",
+        "token-classification",
         model="adsabs/nasa-smd-ibm-v0.1_NER_DEAL",
         tokenizer="adsabs/nasa-smd-ibm-v0.1_NER_DEAL",
-        aggregation_strategy="simple",
+        aggregation_strategy="none",
         device=device
     )
 }
@@ -60,16 +60,47 @@ def compute_similarity(vec1, vec2):
     return float(cosine_similarity([vec1], [vec2])[0][0])
 
 
-def run_ner_on_text(text, label, model_key):
+def run_ner_on_span(text, label, model_key):
+    """
+    Check if a specific term span in text is classified as software by NER model.
+    Uses span-aware classification to preserve original matched terms.
+    """
     try:
         ner_model = ner_pipes[model_key]
-        sentences = sent_tokenize(text)
-        relevant = [s for s in sentences if label in s]
-        for sent in relevant:
-            ner_results = ner_model(sent[:512])
-            for ent in ner_results:
-                if ent["entity_group"] in RECOGNIZED_SOFTWARE_TAGS:
-                    return True
+        
+        # Find the term in the text to get its character offsets
+        label_lower = label.lower()
+        text_lower = text.lower()
+        
+        # Find all occurrences of the term
+        start_idx = 0
+        while True:
+            span_start = text_lower.find(label_lower, start_idx)
+            if span_start == -1:
+                break
+            span_end = span_start + len(label)
+            
+            # Check if this is a word boundary match
+            is_word_start = span_start == 0 or not text[span_start - 1].isalnum()
+            is_word_end = span_end >= len(text) or not text[span_end].isalnum()
+            
+            if is_word_start and is_word_end:
+                # Run NER on the text and check tokens within our span
+                ner_results = ner_model(text[:512])  # Limit text length for model
+                
+                for token in ner_results:
+                    # Check if token overlaps with our target span
+                    token_start = token.get("start", 0)
+                    token_end = token.get("end", 0)
+                    
+                    # Token is considered inside span if it overlaps significantly
+                    if (token_start >= span_start and token_end <= span_end) or \
+                       (token_start < span_end and token_end > span_start):
+                        if token.get("entity", "").replace("B-", "").replace("I-", "") in RECOGNIZED_SOFTWARE_TAGS:
+                            return True
+            
+            start_idx = span_start + 1
+        
         return False
     except Exception as e:
         print(f"⚠️ NER-{model_key} error: {e}")
@@ -94,8 +125,8 @@ def main():
             context_vec = np.array(entry["embedding"])
 
             heuristics = keyword_hits(context_text)
-            ner_tag_oeg = run_ner_on_text(context_text, label, "oeg")
-            ner_tag_ibm = run_ner_on_text(context_text, label, "ibm")
+            ner_tag_oeg = run_ner_on_span(context_text, label, "oeg")
+            ner_tag_ibm = run_ner_on_span(context_text, label, "ibm")
             ner_tag_any = ner_tag_oeg or ner_tag_ibm
 
             sim_score = None

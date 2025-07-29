@@ -17,7 +17,7 @@ except ImportError:
     sys.path.append(str(Path(__file__).parent.parent))
     from config import *
     sys.path.append(str(Path(__file__).parent))
-    from utils import load_json, load_jsonl, get_db_connection
+    from .utils import load_json, load_jsonl, get_db_connection
 
 
 @st.cache_data

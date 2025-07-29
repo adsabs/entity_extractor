@@ -186,7 +186,7 @@ graph LR
 4. **Multi-Signal Scoring** (`score_filtered_contexts.py`)
    - **Semantic similarity**: Context-to-description embedding cosine similarity
    - **Keyword heuristics**: Presence of software-related terms (algorithm, model, code, etc.)
-   - **NER signals**: Domain-specific named entity recognition confidence
+   - **NER signals**: Span-aware domain-specific named entity recognition confidence
    - **Position signals**: Title/abstract mentions weighted higher
 
 5. **Classification** (`assign_likelihood_labels.py`)
@@ -198,6 +198,41 @@ graph LR
    - Export results in multiple formats (JSON, CSV, NER training data)
    - Manual labeling interface for quality assurance
    - Performance metrics and validation reports
+
+### Span-Aware NER Methodology
+
+The pipeline uses a novel span-aware approach for NER validation that prevents term fragmentation:
+
+**Problem**: Traditional NER aggregation strategies can split matched terms due to tokenization. For example, "Zeus" might be tokenized as "ze" + "##us" and only partially recognized.
+
+**Solution**: We use `aggregation_strategy="none"` and implement span-aware classification:
+
+```python
+# Load NER models with raw token output
+ner_pipe = pipeline(
+    "token-classification", 
+    model="oeg/software_benchmark_multidomain",
+    aggregation_strategy="none"  # Preserve character offsets
+)
+
+# Classify only tokens within the known matched span
+def run_ner_on_span(text, matched_term, model_key):
+    # Find exact character positions of the matched term
+    span_start = text.lower().find(matched_term.lower())
+    span_end = span_start + len(matched_term)
+    
+    # Run NER and check only overlapping tokens
+    for token in ner_pipe(text):
+        if token_overlaps_span(token, span_start, span_end):
+            if token_is_software_labeled(token):
+                return True
+    return False
+```
+
+This approach guarantees that:
+- Original matched terms are never artificially split
+- Classification is based on the exact span found through string matching
+- Models can still provide their domain expertise for software recognition
 
 ### Environment Variables
 Document key environment variables in code:
